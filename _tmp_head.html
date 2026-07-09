@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-mode="light">
+<head>
+  <meta charset="UTF-8" />
+  <title>???????????? ? Data Console</title>
+  <link rel="stylesheet" href="/css/main.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+</head>
+<body>
+  <!-- Inline icon set (Lucide-flavored). Refer via <svg><use href="#i-xxx"/></svg>. -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12L12 3l9 9"/><path d="M5 10v10h14V10"/></symbol>
+      <symbol id="i-database" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
+      <symbol id="i-chart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-6"/></symbol>
+      <symbol id="i-edit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4l6 6L8 22H2v-6z"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+      <symbol id="i-log" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h14v16H5z"/><path d="M9 9h6M9 13h6M9 17h4"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4l14 8-14 8z"/></symbol>
+      <symbol id="i-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></symbol>
+      <symbol id="i-sparkles" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z"/><path d="M19 14l1 2 2 1-2 1-1 2-1-2-2-1 2-1z"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21V9"/><path d="M7 14l5-5 5 5"/><path d="M5 3h14"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="logo">??/div>
+        <div class="name-block">
+          <div class="name">????????????</div>
+          <div class="sub">Data Console</div>
+        </div>
+      </div>
+
+      <div class="menu-title">??????</div>
+      <ul class="menu">
+        <li class="menu-item active" data-page="dashboard">
+          <span class="icon"><svg width="18" height="18"><use href="#i-home"/></svg></span>
+          <span class="label">???</span>
+        </li>
+        <li class="menu-item" data-page="collect">
+          <span class="icon"><svg width="18" height="18"><use href="#i-database"/></svg></span>
+          <span class="label">?????????</span>
+        </li>
+        <li class="menu-item" data-page="analysis">
+          <span class="icon"><svg width="18" height="18"><use href="#i-chart"/></svg></span>
+          <span class="label">?????????</span>
+        </li>
+        <li class="menu-item" data-page="generate">
+          <span class="icon"><svg width="18" height="18"><use href="#i-edit"/></svg></span>
+          <span class="label">?????????</span>
+        </li>
+        <li class="menu-item" data-page="manage">
+          <span class="icon"><svg width="18" height="18"><use href="#i-folder"/></svg></span>
+          <span class="label">?????????</span>
+        </li>
+        <li class="menu-item" data-page="logs">
+          <span class="icon"><svg width="18" height="18"><use href="#i-log"/></svg></span>
+          <span class="label">??????</span>
+        </li>
+      </ul>
+
+      <div class="sidebar-foot">
+        <span class="status-dot"></span>
+        <span class="foot-text">B/S ? Python ???</span>
+        <button class="theme-toggle" type="button" onclick="toggleTheme()" title="?????/ ???">??/button>
+      </div>
+    </aside>
+
+    <main class="main">
+
+      <!-- ========== 01. DASHBOARD ========== -->
+      <div id="page-dashboard" class="page active">
+        <div class="page-header">
+          <div>
+            <div class="crumbs">OVERVIEW ? ???</div>
+            <h2>???????????? ? ??????</h2>
+            <div class="desc">??????????????????????????????</div>
+          </div>
+          <div class="actions">
+            <button class="btn" onclick="Dashboard.refresh()"><svg class="icon" width="14" height="14"><use href="#i-refresh"/></svg> ???</button>
+          </div>
+        </div>
+
+        <!-- KPI -->
+        <div class="kpi-grid">
+          <div class="kpi">
+            <div class="kpi-label"><span class="dot" style="background:var(--c1)"></span>????????/div>
+            <div class="kpi-num"><span id="kpi-clean">-</span><span class="unit">??/span></div>
+            <span class="kpi-trend" id="kpi-clean-trend"></span>
+            <div id="kpi-clean-spark" class="kpi-spark"></div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label"><span class="dot" style="background:var(--c2)"></span>????????/div>
+            <div class="kpi-num"><span id="kpi-tpl">-</span><span class="unit">??/span></div>
+            <span class="kpi-trend" id="kpi-tpl-trend"></span>
+            <div id="kpi-tpl-spark" class="kpi-spark"></div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label"><span class="dot" style="background:var(--c3)"></span>????????/div>
+            <div class="kpi-num"><span id="kpi-rpt">-</span><span class="unit">??/span></div>
+            <span class="kpi-trend" id="kpi-rpt-trend"></span>
+            <div id="kpi-rpt-spark" class="kpi-spark"></div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label"><span class="dot" style="background:var(--c4)"></span>??????</div>
+            <div class="kpi-num"><span id="kpi-log">-</span><span class="unit">??/span></div>
+            <span class="kpi-trend" id="kpi-log-trend"></span>
+            <div id="kpi-log-spark" class="kpi-spark"></div>
+          </div>
+        </div>
+
+        <!-- Row 1: trend (2fr) + system health (1fr) -->
+        <div class="chart-grid cols-3">
+          <div class="panel">
+            <div class="panel-head">
+              <h3>??? ? ??? ? ??? ??? <span class="panel-tag">30 D</span></h3>
+              <div class="actions">
+                <button class="btn small ghost" data-range="day" onclick="Dashboard.setRange('day')">??/button>
+                <button class="btn small" data-range="week" onclick="Dashboard.setRange('week')">??/button>
+                <button class="btn small ghost" data-range="month" onclick="Dashboard.setRange('month')">??/button>
+              </div>
+            </div>
+            <div class="panel-body flush"><div id="chart-trend" class="chart"></div></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <h3>????????/h3>
+              <span class="tag ok dot" id="dash-health-tag">??????</span>
+            </div>
+            <div class="panel-body" style="padding-top:0;">
+              <div id="chart-gauge" class="chart short" style="height:170px; background:transparent; border:none; padding:0;"></div>
+              <div class="mini-stats">
+                <div class="mini-stat"><div class="lbl">API ?????/div><div class="val" id="ms-api">??/div></div>
+                <div class="mini-stat"><div class="lbl">??????</div><div class="val" id="ms-latency">??/div></div>
+                <div class="mini-stat"><div class="lbl">??????</div><div class="val" id="ms-today">??/div></div>
+                <div class="mini-stat"><div class="lbl">?????/div><div class="val" id="ms-pending">??/div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Row 2: source pie + category bar -->
+        <div class="chart-grid cols-2">
+          <div class="panel">
+            <div class="panel-head"><h3>??????</h3><span class="tag accent">???</span></div>
+            <div class="panel-body flush"><div id="chart-source" class="chart"></div></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h3>??????</h3></div>
+            <div class="panel-body flush"><div id="chart-cat" class="chart"></div></div>
+          </div>
+        </div>
+
+        <!-- Row 3: realtime feed + 24h heatmap -->
+        <div class="chart-grid cols-2">
+          <div class="panel">
+            <div class="panel-head">
+              <h3>????????/h3>
+              <button class="btn small ghost" onclick="Dashboard.refresh()" title="???"><svg class="icon" width="12" height="12"><use href="#i-refresh"/></svg></button>
+            </div>
+            <div class="panel-body flush"><div id="dash-feed" class="feed"></div></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h3>24h ??????</h3><span class="muted">???=?????/span></div>
+            <div class="panel-body flush"><div id="dash-heatmap" class="heatmap"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== 02. COLLECT ========== -->
+      <div id="page-collect" class="page">
+        <div class="page-header">
+          <div>
+            <div class="crumbs">01 ? ??????</div>
+            <h2>??????????????/h2>
+            <div class="desc">?????? ???????? ???????? ????? ??????????/div>
+          </div>
+          <div class="actions">
+            <button type="button" class="btn" onclick="DataCollect.extractAll()"><svg class="icon" width="14" height="14"><use href="#i-play"/></svg> ?????????</button>
+            <button type="button" class="btn primary" onclick="DataCollect.openDrawer(null)"><svg class="icon" width="14" height="14"><use href="#i-plus"/></svg> ??????</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h3><svg class="icon" width="14" height="14"><use href="#i-link"/></svg> ?????????</h3>
+          </div>
+          <div class="panel-body flush">
+            <div class="table-wrap"><table id="endpoint-table">
+              <thead>
+                <tr><th>???</th><th>???</th><th>???</th><th>URL</th><th>??????</th><th>??????</th><th>ID</th><th>???</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table></div>
+            <p class="panel-foot-hint muted">???????????????????????????????????????????????????????????????/p>
+          </div>
+        </div>
+
+        <div id="ep-drawer" class="drawer hidden">
+          <div class="drawer-mask" onclick="DataCollect.closeDrawer()"></div>
+          <div class="drawer-panel">
+            <div class="drawer-head">
+              <span id="ep-drawer-title">??????</span>
+              <button type="button" class="btn small" onclick="DataCollect.closeDrawer()">???</button>
+            </div>
+            <div class="form">
+              <input type="hidden" id="ep-id" value="" />
+              <label>?????? <input type="text" id="ep-name" placeholder="??????????? /></label>
+              <div class="grid2">
+                <label>??????
+                  <select id="ep-method">
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                    <option value="PATCH">PATCH</option>
+                    <option value="DELETE">DELETE</option>
+                  </select>
+                </label>
+                <label>??? URL <input type="text" id="ep-url" autocomplete="off" spellcheck="false" placeholder="https://..." /></label>
+              </div>
+              <div class="grid2">
+                <label>?????? source <input type="text" id="ep-source" /></label>
+                <label>?????? category <input type="text" id="ep-category" /></label>
+              </div>
+              <label>??????????JSON ?????                <textarea id="ep-headers" rows="2" placeholder='{"Authorization":"Bearer token"}'></textarea>
+              </label>
+              <label>??????POST / PUT / PATCH??????
+                <textarea id="ep-body" rows="3"></textarea>
+              </label>
+              <label>?????? list_path??????
+                <input type="text" id="ep-list-path" autocomplete="off" spellcheck="false" placeholder="???????????data/items ????????esult.records ??data.items" />
+              </label>
+              <label>?????? field_map?????JSON ?????                <textarea id="ep-field-map" rows="4" placeholder='{"title":"name","content":"detail.text","raw_value":"score","occur_time":"ts"}'></textarea>
+              </label>
+              <p class="muted" style="margin:0;">???????????code>title</code> <code>content</code> <code>raw_value</code> <code>occur_time</code> <code>source</code> <code>category</code>???????????????????????/p>
+              <label>????????? tag_rules?????JSON ???????????????????????????????
+                <textarea id="ep-tag-rules" rows="4" placeholder='{"IP":"src.ip","?????:"alarm.code","???":"org.name"}'></textarea>
+              </label>
+              <p class="muted" style="margin:0;">?????? field_map ????????"???????????????????????????????????????????????????????????/p>
+              <div class="toolbar" style="margin-top:8px; justify-content:flex-end;">
+                <button type="button" class="btn primary" onclick="DataCollect.saveEndpoint()">??????</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="raw-preview-section" class="panel hidden">
+          <div id="raw-preview-table-block">
+            <div class="panel-head">
+              <h3 class="raw-preview-subtitle"><svg class="icon" width="14" height="14"><use href="#i-sparkles"/></svg> ?????? <span class="panel-tag">?????/span></h3>
+              <div class="actions">
+                <button type="button" class="btn primary" onclick="DataCollect.autoTagFromPreview()">??????????????/button>
+                <button type="button" class="btn" onclick="DataCollect.showRuleModal()">??????</button>
+                <button type="button" class="btn" onclick="DataCollect.collapseRawPreview()">???</button>
+                <button type="button" class="btn danger" onclick="DataCollect.clearRawPreview()">???</button>
+              </div>
+            </div>
+            <p id="raw-preview-hint" class="hint" style="padding:10px 16px 0; margin:0;"></p>
+            <div class="panel-body flush">
+              <div class="table-wrap raw-preview-scroll" style="border:none; border-radius:0;"><table id="raw-preview-table">
+                <thead><tr><th>???</th><th>???????/th><th>???</th><th>???</th><th>???</th><th>???</th><th>???</th></tr></thead>
+                <tbody></tbody>
+              </table></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h3>????????<span class="panel-tag">?????/span></h3>
+            <div class="actions">
+              <button type="button" class="btn primary" onclick="DataCollect.storeAllTagged()">???????/button>
+              <button type="button" class="btn danger" onclick="DataCollect.clearTagged()">???????/button>
+            </div>
+          </div>
+          <div class="panel-body flush">
+            <div class="table-wrap" style="border:none; border-radius:0;"><table id="tagged-table">
+              <thead><tr><th>???</th><th>???????/th><th>???</th><th>??/th><th>???</th><th>???</th><th>????/th><th>???</th><th>ID</th><th>???</th></tr></thead>
+              <tbody></tbody>
+            </table></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h3>????????<span class="panel-tag">CleanData ? ??????</span></h3>
+            <div class="actions">
+              <select id="clean-days" onchange="DataCollect.loadClean()">
+                <option value="7">??7 ??/option>
+                <option value="30" selected>??30 ??/option>
+                <option value="90">??90 ??/option>
+                <option value="365">??365 ??/option>
+              </select>
+              <button type="button" class="btn" onclick="DataCollect.expandAllDays()">?????</button>
+              <button type="button" class="btn" onclick="DataCollect.collapseAllDays()">?????/button>
+              <button type="button" class="btn" onclick="DataCollect.openCleanCreateModal()"><svg class="icon" width="14" height="14"><use href="#i-plus"/></svg> ???</button>
+              <button type="button" class="btn danger" onclick="DataCollect.clear()">???</button>
+            </div>
+          </div>
+          <div class="panel-body flush">
+            <div class="table-wrap" style="border:none; border-radius:0;"><table id="clean-table" class="clean-by-day">
+              <thead><tr><th>???</th><th>???</th><th>???</th><th>???????/th><th>???</th><th>???</th><th>??????</th><th class="nowrap">???</th></tr></thead>
+              <tbody></tbody>
+            </table></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== 03. ANALYSIS ========== -->
+      <div id="page-analysis" class="page">
+        <div class="page-header">
+          <div>
+            <div class="crumbs">02 ? ??????</div>
+            <h2>??????????????/h2>
+            <div class="desc">???????????????????????????????+ ?????????</div>
+          </div>
+          <div class="actions">
+            <span id="ana-total" class="muted"></span>
+            <select id="ana-range" onchange="Analysis.refresh()">
+              <option value="30">??30 ??/option>
+              <option value="7">??7 ??/option>
+              <option value="90">??90 ??/option>
+            </select>
+            <button class="btn primary" onclick="Analysis.refresh()"><svg class="icon" width="14" height="14"><use href="#i-refresh"/></svg> ??????</button>
+          </div>
+        </div>
+
+        <!-- KPI -->
+        <div class="kpi-grid">
+          <div class="kpi">
+            <div class="kpi-label"><span class="dot" style="background:var(--c1)"></span>??????</div>
+            <div class="kpi-num"><span id="ana-kpi-total">-</span><span class="unit">??/span></div>
+            <span class="kpi-trend" id="ana-kpi-total-trend"></span>
+            <div id="ana-kpi-total-spark" class="kpi-spark"></div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label"><span class="dot" style="background:var(--c2)"></span>??????</div>
+            <div class="kpi-num"><span id="ana-kpi-avg">-</span><span class="unit">????/span></div>
+            <span class="kpi-trend" id="ana-kpi-avg-trend"></span>
+            <div id="ana-kpi-avg-spark" class="kpi-spark"></div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label"><span class="dot" style="background:var(--c4)"></span>??????/div>
+            <div class="kpi-num"><span id="ana-kpi-peak">-</span><span class="unit">??/span></div>
+            <span class="kpi-trend" id="ana-kpi-peak-trend"></span>
+            <div id="ana-kpi-peak-spark" class="kpi-spark"></div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label"><span class="dot" style="background:var(--c3)"></span>??????</div>
+            <div class="kpi-num"><span id="ana-kpi-src">-</span><span class="unit">??/span></div>
+            <span class="kpi-trend" id="ana-kpi-src-trend"></span>
+            <div id="ana-kpi-src-spark" class="kpi-spark"></div>
+          </div>
+        </div>
+
+        <!-- Row 1: source pie + category bar -->
+        <div class="chart-grid cols-2">
+          <div class="panel">
+            <div class="panel-head"><h3>?????source</h3></div>
+            <div class="panel-body flush"><div id="ana-source" class="chart"></div></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h3>?????category</h3></div>
+            <div class="panel-body flush"><div id="ana-cat" class="chart"></div></div>
+          </div>
+        </div>
+
+        <!-- Row 2: full-width time trend -->
+        <div class="panel" style="margin-bottom:var(--gap);">
+          <div class="panel-head">
+            <h3>???????30 ?????/h3>
+            <span class="tag accent">??????</span>
+          </div>
+          <div class="panel-body flush"><div id="ana-date" class="chart tall"></div></div>
+        </div>
+
+        <!-- Row 3: value bar + per-source contribution -->
+        <div class="chart-grid cols-2">
+          <div class="panel">
+            <div class="panel-head"><h3>?????????????</h3></div>
+            <div class="panel-body flush"><div id="ana-value" class="chart"></div></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h3>?????? ????????</h3></div>
+            <div class="panel-body flush"><div id="ana-source-h" class="chart"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== 04. GENERATE ========== -->
+      <div id="page-generate" class="page">
+        <div class="page-header">
+          <div>
+            <div class="crumbs">03 ? ??????</div>
+            <h2>????????????</h2>
+            <div class="desc">?????? ?????????????????? ?????????????&lt;1?????/div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h3>???????????</h3></div>
+          <div class="panel-body">
+            <form id="upload-form" enctype="multipart/form-data" class="toolbar">
+              <input type="text" name="name" placeholder="????????????" />
+              <input type="file" name="file" accept=".txt,.docx" required />
+              <button class="btn primary" type="submit"><svg class="icon" width="14" height="14"><use href="#i-upload"/></svg> ??????</button>
+            </form>
+            <div class="table-wrap"><table id="tpl-table">
+              <thead><tr><th>ID</th><th>???</th><th>??????????????/th><th>??????</th><th>???</th></tr></thead>
+              <tbody></tbody>
+            </table></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h3>???????????</h3><span class="panel-tag">??????</span></div>
+          <div class="panel-body">
+            <textarea id="nlp-text" rows="5" placeholder="??????????????????????????"></textarea>
+            <div class="toolbar" style="margin:10px 0 0;">
+              <button class="btn" onclick="Generate.testKeywords()">????????/button>
+              <button class="btn" onclick="Generate.testSummary()">??????</button>
+            </div>
+            <div id="nlp-result" class="result-box"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h3>???????????</h3></div>
+          <div class="panel-body">
+            <div class="toolbar">
+              <label style="margin:0; display:inline-flex; align-items:center; gap:6px;">??????
+                <select id="gen-template"><option value="">????????????</option></select>
+              </label>
+              <label style="margin:0; display:inline-flex; align-items:center; gap:6px;">??????
+                <select id="gen-type">
+                  <option>???</option><option>???</option><option>?????/option>
+                </select>
+              </label>
+              <label style="margin:0; display:inline-flex; align-items:center; gap:6px;">??? <input type="number" id="gen-days" value="1" min="1" max="60" style="width:60px"> ?????/label>
+              <button class="btn primary" onclick="Generate.run()"><svg class="icon" width="14" height="14"><use href="#i-sparkles"/></svg> ??????</button>
+            </div>
+            <div id="gen-result" class="result-box"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== 05. MANAGE ========== -->
+      <div id="page-manage" class="page">
+        <div class="page-header">
+          <div>
+            <div class="crumbs">04 ? ??????</div>
+            <h2>????????????</h2>
+            <div class="desc">?????? ??/ ??/ ??/ ??? ??? Word / PDF</div>
+          </div>
+          <div class="actions">
+            <button class="btn primary" onclick="Manage.openAdd()"><svg class="icon" width="14" height="14"><use href="#i-plus"/></svg> ??????</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h3><svg class="icon" width="14" height="14"><use href="#i-search"/></svg> ???????/h3></div>
+          <div class="panel-body">
+            <div class="toolbar" style="margin-bottom:0;">
+              <input type="text" id="mng-kw" placeholder="??????/??????" />
+              <input type="date" id="mng-from" />
+              <input type="date" id="mng-to" />
+              <select id="mng-type">
+                <option value="">??????</option>
+                <option>???</option><option>???</option><option>?????/option>
+              </select>
+              <button class="btn" onclick="Manage.search()">???</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h3>??????</h3></div>
+          <div class="panel-body flush">
+            <div class="table-wrap" style="border:none; border-radius:0;"><table id="rpt-table">
+              <thead><tr><th>ID</th><th>???</th><th>???</th><th>???</th><th>?????/th><th>???</th><th>???</th></tr></thead>
+              <tbody></tbody>
+            </table></div>
+          </div>
+        </div>
+
+        <div id="rpt-drawer" class="drawer hidden">
+          <div class="drawer-mask" onclick="Manage.closeDrawer()"></div>
+          <div class="drawer-panel">
+            <div class="drawer-head">
+              <span id="drawer-title">??????</span>
+              <button class="btn small" onclick="Manage.closeDrawer()">???</button>
+            </div>
+            <div class="form">
+              <input type="hidden" id="f-id" />
+              <label>??? <input type="text" id="f-title" /></label>
+              <div class="grid2">
+                <label>??????
+                  <select id="f-type"><option>???</option><option>???</option><option>?????/option></select>
+                </label>
+                <label>?????? <input type="date" id="f-date" /></label>
+                <label>??? <input type="text" id="f-location" /></label>
+                <label>?????? <input type="text" id="f-systems" /></label>
+              </div>
+              <label>??????????????<input type="text" id="f-keywords" /></label>
+              <label>??? <textarea id="f-summary" rows="3"></textarea></label>
+              <label>??? <textarea id="f-content" rows="14"></textarea></label>
+              <div class="toolbar" style="justify-content:flex-end;">
+                <button class="btn primary" onclick="Manage.save()">???</button>
+                <button class="btn" onclick="Manage.exportFmt('word')"><svg class="icon" width="14" height="14"><use href="#i-download"/></svg> Word</button>
+                <button class="btn" onclick="Manage.exportFmt('pdf')"><svg class="icon" width="14" height="14"><use href="#i-download"/></svg> PDF</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== 06. LOGS ========== -->
+      <div id="page-logs" class="page">
+        <div class="page-header">
+          <div>
+            <div class="crumbs">05 ? ??????</div>
+            <h2>??????</h2>
+            <div class="desc">????????????????????????????????????</div>
+          </div>
+          <div class="actions">
+            <button class="btn" onclick="Logs.refresh()"><svg class="icon" width="14" height="14"><use href="#i-refresh"/></svg> ???</button>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-body flush">
+            <div class="table-wrap" style="border:none; border-radius:0;"><table id="log-table">
+              <thead><tr><th>ID</th><th>???</th><th>???</th><th>???</th><th>???</th><th>???</th></tr></thead>
+              <tbody></tbody>
+            </table></div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- ========== Modals ========== -->
+  <div id="tag-edit-modal" class="modal-center hidden">
+    <div class="modal-center-mask" onclick="DataCollect.closeTagEditModal()"></div>
+    <div class="modal-center-dialog">
+      <div class="modal-center-head">
+        <span class="modal-center-title">?????????</span>
+        <button type="button" class="btn small" onclick="DataCollect.closeTagEditModal()">???</button>
+      </div>
+      <div class="form">
+        <input type="hidden" id="tag-edit-id" value="" />
+        <label>??? <input type="text" id="tag-edit-tag" maxlength="64" /></label>
+        <label>??<textarea id="tag-edit-value" rows="8"></textarea></label>
+        <div class="toolbar" style="justify-content:flex-end;">
+          <button type="button" class="btn primary" onclick="DataCollect.saveTagEdit()">??????</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="clean-edit-modal" class="modal-center hidden">
+    <div class="modal-center-mask" onclick="DataCollect.closeCleanEditModal()"></div>
+    <div class="modal-center-dialog">
+      <div class="modal-center-head">
+        <span class="modal-center-title" id="clean-edit-title">???????????/span>
+        <button type="button" class="btn small" onclick="DataCollect.closeCleanEditModal()">???</button>
+      </div>
+      <div class="form">
+        <input type="hidden" id="clean-edit-id" value="" />
+        <label>??????????<input type="text" id="clean-edit-source" maxlength="64" /></label>
+        <label>??? <input type="text" id="clean-edit-tags" maxlength="255" /></label>
+        <label>??? <input type="text" id="clean-edit-category" maxlength="64" /></label>
+        <label>??<textarea id="clean-edit-content" rows="8"></textarea></label>
+        <div class="toolbar" style="justify-content:flex-end;">
+          <button type="button" class="btn primary" onclick="DataCollect.saveCleanEdit()">??????</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="rule-modal" class="modal-center hidden">
+    <div class="modal-center-mask" onclick="DataCollect.closeRuleModal()"></div>
+    <div class="modal-center-dialog" style="max-width:680px;">
+      <div class="modal-center-head">
+        <span class="modal-center-title">?????? ? ?????????</span>
+        <button type="button" class="btn small" onclick="DataCollect.closeRuleModal()">???</button>
+      </div>
+      <div class="form">
+        <div id="rule-modal-body"></div>
+        <p class="muted" style="margin:0;">?????????????JSON ??????????????????????????????????????????????????????????????????????????????????????????????????????????/p>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script>
+    // Theme toggle (dark / light) ??persisted in localStorage.
+    function applyTheme(mode) {
+      document.documentElement.setAttribute("data-mode", mode);
+      try { localStorage.setItem("zhx-theme", mode); } catch (_) {}
+    }
+    function toggleTheme() {
+      const cur = document.documentElement.getAttribute("data-mode") || "dark";
+      applyTheme(cur === "dark" ? "light" : "dark");
+    }
+    try {
+      const saved = localStorage.getItem("zhx-theme");
+      if (saved === "light" || saved === "dark") applyTheme(saved);
+    } catch (_) {}
+  </script>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/app.js"></script>
+  <script src="/js/data_collection.js"></script>
+  <script src="/js/data_analysis.js"></script>
+  <script src="/js/report_generate.js"></script>
+  <script src="/js/report_manage.js"></script>
+  <script src="/js/logs.js"></script>
+</body>
+</html>

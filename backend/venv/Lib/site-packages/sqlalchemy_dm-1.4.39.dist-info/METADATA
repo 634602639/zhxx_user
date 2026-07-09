@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: sqlalchemy_dm
+Version: 1.4.39
+Summary: SQLAlchemy dialect for DM
+Author: Dameng
+Author-email: 
+Keywords: DM SQLAlchemy
+License-File: LICENSE
+Requires-Dist: dmPython
+Requires-Dist: sqlalchemy
+Dynamic: author
+Dynamic: keywords
+Dynamic: license-file
+Dynamic: requires-dist
+Dynamic: summary

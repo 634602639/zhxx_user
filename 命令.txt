@@ -1,0 +1,6 @@
+docker buildx build --platform linux/arm64 -t zhxx-suojian:arm64 --load .
+docker compose up -d            # 后台启动容器
+docker compose logs -f app      # 实时看启动日志（Ctrl+C 退出看日志，容器不停）
+
+docker compose down 
+docker rmi zhxx-suojian:arm64   

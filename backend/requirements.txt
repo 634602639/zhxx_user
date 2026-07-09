@@ -1,0 +1,20 @@
+Flask==3.0.0
+Flask-Cors==4.0.0
+# 达梦自带方言 sqlalchemy_dm 仅支持 SQLAlchemy 1.4，故固定 1.4 + 兼容的 Flask-SQLAlchemy 3.0.x
+Flask-SQLAlchemy==3.0.5
+SQLAlchemy==1.4.54
+psycopg2-binary>=2.9.10
+python-docx==1.1.0
+mammoth==1.8.0
+python-pptx==0.6.23
+jieba==0.42.1
+openpyxl==3.1.2
+requests==2.31.0
+reportlab==4.2.5
+# —— 达梦(DM)后端 ——
+# 驱动 dmPython：PyPI 提供预编译 wheel，含 Linux aarch64(manylinux2014)，
+# 故 x86_64 / ARM64 容器均可直接 pip 安装，达梦客户端 .so 已打包进 wheel。
+dmPython>=2.5.0
+# 方言 sqlalchemy_dm 不在 PyPI：它是纯 Python，已 vendor 到 backend/vendor/，
+# 由 Dockerfile 拷入容器 site-packages（保留 dist-info 的 entry_points 以注册 dm 方言）。
+# 本机开发若需安装：pip install E:\dmdbms\drivers\python\sqlalchemy1.4.6

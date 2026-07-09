@@ -1,0 +1,30 @@
+# 部署：达梦(DM) 后端 + ARM64 目标主机。
+# 达梦数据库服务器（DM Server）跑在容器外的 ARM 信创服务器上，
+# 本应用容器仅通过 DMHOST/DMPORT 连过去。连接参数放到同目录 .env（见 .env.example）。
+#
+# 交叉构建得到的 arm64 镜像，在 ARM 主机上：  docker compose up -d
+# 直接在 ARM 主机上构建：               docker compose up -d --build
+services:
+  app:
+    # 在 ARM 主机本地构建用 build；若用 x86 交叉构建好的镜像，注释 build、改用 image。
+    build:
+      context: .
+    image: zhxx-suojian:arm64
+    platform: linux/arm64
+    container_name: zhxx-app
+    restart: unless-stopped
+    environment:
+      DB_BACKEND: dm
+      # 外部达梦服务器（ARM 信创机）连接参数，从 .env 注入
+      DMHOST: ${DMHOST:?请在 .env 设置达梦服务器地址}
+      DMPORT: ${DMPORT:-5236}
+      DMUSER: ${DMUSER:-suo_jian}
+      DMPASSWORD: ${DMPASSWORD:?请在 .env 设置达梦密码}
+      TZ: Asia/Shanghai
+    volumes:
+      # 运行期产物落到宿主，重启容器/重建镜像不丢
+      - ./backend/uploads:/app/backend/uploads
+      - ./backend/exports:/app/backend/exports
+      - ./backend/data:/app/backend/data
+    ports:
+      - "5000:5000"
