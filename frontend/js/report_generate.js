@@ -6,16 +6,383 @@ const Generate = {
   _slotSourceText: "",
   _slots: [],
   _bindings: [],
+  _polishingIds: new Set(),
+  _polishQueue: [],
+  _polishRunning: false,
+  _autofilling: false,
+  _autofillTimer: null,
+  _autofillBtnHtml: '<svg class="icon" width="14" height="14"><use href="#i-sparkles"/></svg> AI 自动填写',
 
   async init() {
     this._defaultReportDate();
+    this._defaultAutofillPeriod();
+    await this._loadAutofillUnits();
+    this._wireAutofillFilters();
     await this.loadTemplates();
     await this.refreshCleanList({ quiet: true });
     await this.refreshComposeDraftList();
+    await this._loadLlmStatus();
     this._wireComposeDraftFilters();
     this._wireUpload();
     const sel = document.getElementById("gen-template");
-    if (sel) sel.addEventListener("change", () => this.onTemplateSelect());
+    if (sel && !sel._wiredTplChange) {
+      sel._wiredTplChange = true;
+      sel.addEventListener("change", () => this.onTemplateSelect());
+    }
+  },
+
+  _defaultAutofillPeriod() {
+    const now = new Date();
+    const df = document.getElementById("gen-af-from");
+    const dt = document.getElementById("gen-af-to");
+    if (dt && !dt.value) dt.value = now.toISOString().slice(0, 10);
+    if (df && !df.value) {
+      const first = new Date(now.getFullYear(), now.getMonth(), 1);
+      df.value = first.toISOString().slice(0, 10);
+    }
+  },
+
+  async _loadAutofillUnits() {
+    const sel = document.getElementById("gen-af-unit");
+    if (!sel) return;
+    const short = {
+      hq: "空军本级",
+      east: "东部",
+      west: "西部",
+      south: "南部",
+      north: "北部",
+      center: "中部",
+    };
+    const keep = sel.value || "hq";
+    try {
+      const r = await API.get("/api/data/org-units");
+      const items = r.data || [];
+      if (!items.length) return;
+      const opts = [`<option value="all">全部</option>`].concat(
+        items.map((u) => {
+          const code = String(u.code || "").replace(/"/g, "");
+          const label = short[code] || u.name || code;
+          return `<option value="${code}">${escapeHtml(label)}</option>`;
+        }),
+      );
+      sel.innerHTML = opts.join("");
+      const ok = [...sel.options].some((o) => o.value === keep);
+      sel.value = ok ? keep : "hq";
+    } catch (_) {
+      /* 保留页面预置六单位 */
+    }
+  },
+
+  _wireAutofillFilters() {
+    ["gen-af-from", "gen-af-to", "gen-af-unit", "gen-af-metric"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el || el._wiredCleanFilter) return;
+      el._wiredCleanFilter = true;
+      el.addEventListener("change", () => this.refreshCleanList({ quiet: true }));
+    });
+  },
+
+  _cleanQueryString() {
+    const params = new URLSearchParams({ page: "1", size: "500" });
+    const df = (document.getElementById("gen-af-from")?.value || "").trim();
+    const dt = (document.getElementById("gen-af-to")?.value || "").trim();
+    const unit = (document.getElementById("gen-af-unit")?.value || "").trim();
+    const metric = (document.getElementById("gen-af-metric")?.value || "").trim();
+    if (df) params.set("date_from", df);
+    if (dt) params.set("date_to", dt);
+    if (unit && unit !== "all") params.set("unit", unit);
+    if (metric && metric !== "all") params.set("metric", metric);
+    return params.toString();
+  },
+
+  async openLlmDrawer() {
+    const el = document.getElementById("llm-drawer");
+    if (el) el.classList.remove("hidden");
+    await this._loadLlmStatus();
+  },
+
+  closeLlmDrawer() {
+    const el = document.getElementById("llm-drawer");
+    if (el) el.classList.add("hidden");
+  },
+
+  async _loadLlmStatus() {
+    const el = document.getElementById("gen-llm-status");
+    const baseEl = document.getElementById("gen-llm-base");
+    const modelEl = document.getElementById("gen-llm-model");
+    const keyEl = document.getElementById("gen-llm-key");
+    const clearEl = document.getElementById("gen-llm-clear-key");
+    try {
+      const r = await API.get("/api/template/llm-config");
+      const d = r.data || {};
+      if (baseEl) baseEl.value = d.base_url || "";
+      if (modelEl) modelEl.value = d.model || "";
+      if (keyEl) {
+        keyEl.value = "";
+        keyEl.placeholder = d.has_api_key
+          ? "已保存，留空则不修改"
+          : "无需密钥可留空";
+      }
+      if (clearEl) clearEl.checked = false;
+      if (el) {
+        el.textContent = d.configured
+          ? `已配置${d.model ? "（" + d.model + "）" : ""}`
+          : "展示模式：未填地址和模型名";
+      }
+    } catch (_) {
+      if (el) el.textContent = "";
+    }
+  },
+
+  _llmFormPayload() {
+    return {
+      base_url: (document.getElementById("gen-llm-base")?.value || "").trim(),
+      model: (document.getElementById("gen-llm-model")?.value || "").trim(),
+      api_key: (document.getElementById("gen-llm-key")?.value || "").trim(),
+      clear_api_key: !!(document.getElementById("gen-llm-clear-key") && document.getElementById("gen-llm-clear-key").checked),
+    };
+  },
+
+  async saveLlmConfig() {
+    const payload = this._llmFormPayload();
+    if (payload.base_url) {
+      try {
+        const u = new URL(payload.base_url);
+        if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error();
+      } catch (_) {
+        toast("接口地址须为 http:// 或 https:// 开头", "error");
+        return;
+      }
+    }
+    try {
+      const r = await API.put("/api/template/llm-config", payload);
+      toast(r.msg || "已保存", "success");
+      await this._loadLlmStatus();
+      this.closeLlmDrawer();
+    } catch (e) {
+      toast(e.message || "保存失败", "error");
+    }
+  },
+
+  async testLlmConfig() {
+    const payload = this._llmFormPayload();
+    if (!payload.base_url || !payload.model) {
+      toast("请先填写接口地址和模型名", "error");
+      return;
+    }
+    try {
+      toast("正在测试连接…");
+      const r = await API.post("/api/template/llm-config/test", payload);
+      toast(r.msg || "连接正常", "success");
+    } catch (e) {
+      toast(e.message || "测试失败", "error");
+    }
+  },
+
+  setFillTab(tab) {
+    const which = tab === "ai" ? "ai" : "map";
+    document.querySelectorAll(".gen-fill-tab").forEach((btn) => {
+      const on = btn.getAttribute("data-tab") === which;
+      btn.classList.toggle("active", on);
+      btn.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    const mapPane = document.getElementById("gen-fill-pane-map");
+    const aiPane = document.getElementById("gen-fill-pane-ai");
+    if (mapPane) mapPane.classList.toggle("hidden", which !== "map");
+    if (aiPane) aiPane.classList.toggle("hidden", which !== "ai");
+    const tag = document.getElementById("gen-fill-tag");
+    if (tag) tag.textContent = which === "ai" ? "大模型填报" : "入库 / 手工";
+  },
+
+  _setAutofillBusy(busy, text) {
+    this._autofilling = !!busy;
+    const btn = document.getElementById("gen-ai-fill-btn");
+    const banner = document.getElementById("gen-ai-fill-banner");
+    const label = document.getElementById("gen-ai-fill-banner-text");
+    if (btn) {
+      btn.disabled = !!busy;
+      btn.innerHTML = busy
+        ? '<span class="gen-ai-spinner" aria-hidden="true"></span> 正在填写…'
+        : this._autofillBtnHtml;
+    }
+    if (label && text) label.textContent = text;
+    if (banner) {
+      banner.classList.toggle("is-error", !busy && !!text);
+      if (busy) {
+        banner.classList.remove("hidden");
+        banner.classList.remove("is-error");
+      } else if (!text) {
+        banner.classList.add("hidden");
+      } else {
+        banner.classList.remove("hidden");
+      }
+    }
+    if (!busy && this._autofillTimer) {
+      clearInterval(this._autofillTimer);
+      this._autofillTimer = null;
+    }
+  },
+
+  async autofillTemplate() {
+    if (this._autofilling) return;
+    if (!this._currentTemplate) {
+      toast("请先选择模板", "error");
+      return;
+    }
+    const payload = {
+      date_from: document.getElementById("gen-af-from")?.value || "",
+      date_to: document.getElementById("gen-af-to")?.value || "",
+      unit: document.getElementById("gen-af-unit")?.value || "hq",
+      save_draft: true,
+      use_llm: true,
+    };
+    const started = Date.now();
+    const tick = () => {
+      const s = Math.max(0, Math.floor((Date.now() - started) / 1000));
+      const hint = s < 15
+        ? "正在填入指标并起草空章节"
+        : "仍在生成文档，请勿关闭或重复点击";
+      this._setAutofillBusy(true, `${hint}（已用时 ${s} 秒）`);
+    };
+    tick();
+    this._autofillTimer = setInterval(tick, 1000);
+    try {
+      const r = await API.post(`/api/template/${this._currentTemplate.id}/autofill`, payload);
+      const data = r.data || {};
+      const filledPlain = String(data.plain_after || "").trim();
+      if (filledPlain) {
+        this._showAutofillPlainPreview(filledPlain);
+      } else {
+        const vals = data.values || [];
+        if (this._slots.length && vals.length) {
+          for (let i = 0; i < this._bindings.length; i++) {
+            const v = i < vals.length ? String(vals[i] || "") : "";
+            this._bindings[i] = { mode: "manual", cleanId: null, manual: v };
+          }
+          this._renderSlotEditors();
+          await this.applyMappingToLeftPreview({ quiet: true });
+        }
+      }
+      const filled = data.filled_count ?? 0;
+      const total = data.slot_count ?? this._slots.length;
+      const narr = (data.narrative_filled || []).length;
+      const secs = Math.max(1, Math.round((Date.now() - started) / 1000));
+      const done = narr
+        ? `已填 ${filled}/${total} 处，并起草 ${narr} 个空章节，用时 ${secs} 秒`
+        : `已填 ${filled}/${total} 处并保存草稿，用时 ${secs} 秒`;
+      this._setAutofillBusy(false, "");
+      toast(done, "success");
+      this.setFillTab("map");
+      this.setStep(3);
+      await this.refreshComposeDraftList();
+      await this.refreshCleanList({ quiet: true });
+    } catch (e) {
+      this._setAutofillBusy(false, e.message || "自动填报失败");
+      toast(e.message || "自动填报失败", "error");
+    }
+  },
+
+  _showAutofillPlainPreview(plain) {
+    const text = String(plain || "");
+    this._slotSourceText = text;
+    this._slots = this._findXSlots(text);
+    this._bindings = this._slots.map(() => ({ mode: "manual", cleanId: null, manual: "" }));
+    this._renderSlotEditors();
+    const prev = document.getElementById("gen-tpl-preview");
+    const cnt = document.getElementById("gen-ph-count");
+    const hint = document.getElementById("gen-tpl-hint");
+    if (cnt) cnt.textContent = `${this._slots.length} 处`;
+    if (!prev) return;
+    const inner = this._buildXHighlightInnerHtml(text, this._slots);
+    prev.innerHTML = `<div class="plain-tpl-fallback tpl-x-annot-body preview-ph-body preview-replaced" role="region" aria-label="全文预览：自动填写结果">${inner}</div>`;
+    this._setPreviewBarTitle("全文预览（已自动填写）");
+    if (hint) {
+      hint.textContent = "左侧为自动填写后的正文；「本月进展」「下月计划」「措施建议」已按指标起草。可下载合成草稿核对 Word。";
+    }
+  },
+
+  _composeStatusHtml(row) {
+    const st = row.status || "pending_polish";
+    const zh = row.status_zh || st;
+    const detail = row.status_detail || "";
+    let cls = "tag warn";
+    if (st === "polishing") cls = "tag accent";
+    else if (st === "queued_polish") cls = "tag warn";
+    else if (st === "polished") cls = "tag ok";
+    else if (st === "polish_error") cls = "tag danger";
+    const title = detail ? ` title="${escapeHtml(detail)}"` : "";
+    let extra = "";
+    if (st === "polish_error" && detail) {
+      extra = `<span class="muted" style="margin-left:6px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle;">${escapeHtml(detail)}</span>`;
+    }
+    return `<span class="${cls} dot"${title}>${escapeHtml(zh)}</span>${extra}`;
+  },
+
+  _paintComposeDraftStatus(id, patch) {
+    const td = document.querySelector(`[data-compose-status="${id}"]`);
+    if (td) td.innerHTML = this._composeStatusHtml(patch);
+    const btn = document.querySelector(`[data-compose-polish="${id}"]`);
+    if (btn) {
+      const queued = patch.status === "queued_polish";
+      const polishing = patch.status === "polishing" || queued;
+      btn.disabled = polishing;
+      btn.textContent = queued ? "排队中" : polishing ? "润色中…" : "润色纠错";
+    }
+  },
+
+  _syncPolishQueueUi() {
+    this._polishQueue.forEach((qid) => {
+      this._paintComposeDraftStatus(qid, {
+        status: "queued_polish",
+        status_zh: "排队中",
+        status_detail: "等待上一份润色完成",
+      });
+    });
+  },
+
+  polishComposeDraft(id) {
+    if (this._polishingIds.has(id)) return;
+    this._polishingIds.add(id);
+    const waiting = this._polishRunning || this._polishQueue.length > 0;
+    this._polishQueue.push(id);
+    this._paintComposeDraftStatus(id, {
+      status: waiting ? "queued_polish" : "polishing",
+      status_zh: waiting ? "排队中" : "正在润色",
+      status_detail: waiting ? "等待上一份润色完成" : "",
+    });
+    if (waiting) toast("已加入润色队列", "info");
+    this._runPolishQueue();
+  },
+
+  async _runPolishQueue() {
+    if (this._polishRunning) return;
+    this._polishRunning = true;
+    while (this._polishQueue.length) {
+      const id = this._polishQueue.shift();
+      this._paintComposeDraftStatus(id, {
+        status: "polishing",
+        status_zh: "正在润色",
+        status_detail: "",
+      });
+      try {
+        toast("正在润色…");
+        const r = await API.post(`/api/template/compose-draft/${id}/polish`, {});
+        const n = (r.data && r.data.replacement_count) || 0;
+        toast(n ? `润色完成，替换 ${n} 处` : "润色完成（无需修改）", "success");
+      } catch (e) {
+        this._paintComposeDraftStatus(id, {
+          status: "polish_error",
+          status_zh: "润色失败",
+          status_detail: e.message || "润色失败",
+        });
+        toast(e.message || "润色失败", "error");
+      } finally {
+        this._polishingIds.delete(id);
+        await this.refreshComposeDraftList();
+        this._syncPolishQueueUi();
+      }
+    }
+    this._polishRunning = false;
   },
 
   _composeDraftQueryString() {
@@ -58,7 +425,7 @@ const Generate = {
   async refreshCleanList(opts) {
     const quiet = opts && opts.quiet;
     try {
-      const r = await API.get("/api/data/clean?page=1&size=500");
+      const r = await API.get(`/api/data/clean?${this._cleanQueryString()}`);
       const items = (r.data && r.data.items) || [];
       this._cleanList = items;
       this._cleanById = Object.fromEntries(items.map((x) => [x.id, x]));
@@ -130,20 +497,31 @@ const Generate = {
         }
       }
       if (!items.length) {
-        tbody.innerHTML =
-          '<tr><td colspan="6" class="muted" style="text-align:center;padding:12px;">无匹配记录（可调整条件后查询）</td></tr>';
+          tbody.innerHTML =
+          '<tr><td colspan="7" class="muted" style="text-align:center;padding:12px;">无匹配记录（可调整条件后查询）</td></tr>';
         return;
       }
       tbody.innerHTML = items
         .map((row) => {
           const typeZh = row.office_kind_zh || "—";
+          const inQueue = this._polishQueue.includes(row.id);
+          const busy = this._polishingIds.has(row.id);
+          const polishBtn = busy
+            ? `<button type="button" class="btn small" data-compose-polish="${row.id}" disabled>${inQueue ? "排队中" : "润色中…"}</button>`
+            : `<button type="button" class="btn small" data-compose-polish="${row.id}" onclick="Generate.polishComposeDraft(${row.id})" title="大模型纠错润色，不改动数字">润色纠错</button>`;
+          const dl = row.has_file
+            ? `<button type="button" class="btn small" onclick="Generate.downloadComposeDraftFile(${row.id})">下载</button>`
+            : "";
           return `<tr>
             <td class="cell-mono">${row.id}</td>
             <td>${escapeHtml(row.title || "")}</td>
             <td>${escapeHtml(row.template_name || "—")}</td>
             <td class="nowrap">${escapeHtml(typeZh)}</td>
+            <td class="nowrap" data-compose-status="${row.id}">${this._composeStatusHtml(row)}</td>
             <td class="nowrap muted">${escapeHtml(row.created_at || "")}</td>
             <td class="nowrap">
+              ${polishBtn}
+              ${dl}
               <button type="button" class="btn small primary" onclick="Generate.publishComposeDraft(${row.id})" title="写入 duty_report，可在报告在线管理中查看">正式保存</button>
               <button type="button" class="btn small danger" onclick="Generate.deleteComposeDraft(${row.id})">删除</button>
             </td>
@@ -153,7 +531,7 @@ const Generate = {
     } catch (e) {
       if (meta)
         meta.textContent = "加载失败";
-      tbody.innerHTML = `<tr><td colspan="6" class="muted" style="text-align:center;padding:12px;">${escapeHtml(
+      tbody.innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center;padding:12px;">${escapeHtml(
         e.message || "加载失败",
       )}</td></tr>`;
     }
@@ -215,7 +593,7 @@ const Generate = {
       }, 4000);
     };
 
-    const ALLOWED = [".docx"];
+    const ALLOWED = [".docx", ".pptx"];
 
     const autoUpload = async (file) => {
       if (!file) return;
@@ -340,7 +718,7 @@ const Generate = {
             </tr>`;
           })
           .join("")
-      : `<tr><td colspan="5" class="muted" style="text-align:center;padding:18px;">暂无模板，先上传一个 .docx 文件</td></tr>`;
+      : `<tr><td colspan="5" class="muted" style="text-align:center;padding:18px;">暂无模板，先上传一个 .docx 或 .pptx 文件</td></tr>`;
 
     const sel = document.getElementById("gen-template");
     if (sel) {
@@ -516,15 +894,16 @@ const Generate = {
   },
 
   /** 按当前映射在左侧全文预览区写入替换结果（与③归档预览独立） */
-  async applyMappingToLeftPreview() {
+  async applyMappingToLeftPreview(opts) {
+    const quiet = opts && opts.quiet;
     if (!this._currentTemplate) {
-      toast("请先选择模板", "error");
+      if (!quiet) toast("请先选择模板", "error");
       return;
     }
     const wrap = document.getElementById("gen-tpl-preview-wrap");
     const prev = document.getElementById("gen-tpl-preview");
     if (!prev || !wrap || wrap.classList.contains("hidden")) {
-      toast("请先等待模板预览加载完成", "error");
+      if (!quiet) toast("请先等待模板预览加载完成", "error");
       return;
     }
     try {
@@ -546,7 +925,7 @@ const Generate = {
         this._restorePreviewScroll(prev, scrollSnap);
         requestAnimationFrame(() => this._restorePreviewScroll(prev, scrollSnap));
       });
-      toast("已在左侧更新预览：未填的占位仍带编号显示", "success");
+      if (!quiet) toast("已在左侧更新预览：未填的占位仍带编号显示", "success");
     } catch (e) {
       toast(e.message || "替换失败", "error");
     }
@@ -703,15 +1082,40 @@ const Generate = {
 
   _cleanSelectOptions(selectedId) {
     const opts = ['<option value="">（选择入库记录）</option>'];
-    for (const row of this._cleanList) {
+    const rows = this._cleanList || [];
+    if (!rows.length) {
+      opts.push('<option value="" disabled>（该时间范围无匹配入库数据）</option>');
+      return opts.join("");
+    }
+    for (const row of rows) {
       const id = row.id;
-      const head = `#${id} ${row.title || row.tags || row.source || "—"}`;
-      const excerpt = (row.content || "").replace(/\s+/g, " ").trim().slice(0, 56);
-      const tail = excerpt ? ` — ${excerpt}${row.content && row.content.length > 56 ? "…" : ""}` : "";
+      const when = (row.occur_time || row.data_time || "").slice(0, 10);
+      const head = row.title || row.tags || row.source || "—";
+      const num = this._numericFromClean(row);
+      const bits = [head];
+      if (num) bits.push(num);
+      if (when) bits.push(when);
       const sel = selectedId && Number(selectedId) === id ? " selected" : "";
-      opts.push(`<option value="${id}"${sel}>${escapeHtml(head + tail)}</option>`);
+      const label = sel ? (num || bits.join(" · ")) : bits.join(" · ");
+      opts.push(`<option value="${id}"${sel}>${escapeHtml(label)}</option>`);
     }
     return opts.join("");
+  },
+
+  /** 入库记录用于填 X：只要数值（93.00% → 93.00），模板里已有 %、万 等单位。 */
+  _numericFromClean(row) {
+    if (!row) return "";
+    const content = String(row.content ?? "").trim();
+    const stripped = content.replace(/[%％万个]/g, "").trim();
+    const m = stripped.match(/-?\d+(?:\.\d+)?(?:\s*\/\s*-?\d+(?:\.\d+)?)?/);
+    if (m) return m[0].replace(/\s+/g, "");
+    const mv = row.metric_value;
+    if (mv != null && Number.isFinite(Number(mv))) {
+      const x = Number(mv);
+      if (Number.isInteger(x) || Math.abs(x - Math.round(x)) < 1e-9) return String(Math.round(x));
+      return String(x);
+    }
+    return content;
   },
 
   _renderSlotEditors() {
@@ -755,14 +1159,25 @@ const Generate = {
     });
   },
 
-  setBindingMode(i, mode) {
+  async setBindingMode(i, mode) {
     const b = this._bindings[i];
     if (!b) return;
     b.mode = mode;
+    if (mode === "clean") {
+      await this.refreshCleanList({ quiet: true });
+      const sel = document.getElementById(`slot-clean-${i}`);
+      const ta = document.getElementById(`slot-manual-${i}`);
+      if (ta) ta.style.display = "none";
+      if (sel) {
+        sel.style.display = "block";
+        sel.innerHTML = this._cleanSelectOptions(b.cleanId);
+      }
+      return;
+    }
     const ta = document.getElementById(`slot-manual-${i}`);
     const sel = document.getElementById(`slot-clean-${i}`);
-    if (ta) ta.style.display = mode === "manual" ? "block" : "none";
-    if (sel) sel.style.display = mode === "clean" ? "block" : "none";
+    if (ta) ta.style.display = "block";
+    if (sel) sel.style.display = "none";
   },
 
   setManual(i, v) {
@@ -776,6 +1191,8 @@ const Generate = {
 
   setClean(i, v) {
     if (this._bindings[i]) this._bindings[i].cleanId = v ? parseInt(v, 10) : null;
+    const sel = document.getElementById(`slot-clean-${i}`);
+    if (sel) sel.innerHTML = this._cleanSelectOptions(this._bindings[i] && this._bindings[i].cleanId);
   },
 
   /** 自后向前替换，避免索引位移 */
@@ -813,14 +1230,14 @@ const Generate = {
         let row = this._cleanById[b.cleanId];
         if (!row) {
           try {
-            const r = await API.get("/api/data/clean?page=1&size=500");
+            const r = await API.get(`/api/data/clean?${this._cleanQueryString()}`);
             const items = (r.data && r.data.items) || [];
             this._cleanList = items;
             this._cleanById = Object.fromEntries(items.map((x) => [x.id, x]));
             row = this._cleanById[b.cleanId];
           } catch (_) {}
         }
-        vals.push(row && row.content != null ? String(row.content) : "（未找到该条入库数据，请刷新入库列表）");
+        vals.push(row ? this._numericFromClean(row) : "（未找到该条入库数据，请刷新入库列表）");
       } else {
         vals.push((b.manual || "").trim());
       }

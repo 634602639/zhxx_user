@@ -47,10 +47,23 @@ const Users = {
     document.getElementById("user-edit-modal")?.classList.remove("hidden");
     const err = document.getElementById("user-edit-err");
     if (err) err.textContent = "";
+    this._wireEsc();
     setTimeout(() => document.getElementById("user-edit-name")?.focus(), 50);
   },
   closeModal() {
     document.getElementById("user-edit-modal")?.classList.add("hidden");
+  },
+  _wireEsc() {
+    if (this._escWired) return;
+    this._escWired = true;
+    document.addEventListener("keydown", (ev) => {
+      const modal = document.getElementById("user-edit-modal");
+      if (!modal || modal.classList.contains("hidden")) return;
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        this.closeModal();
+      }
+    });
   },
 
   openCreate() {

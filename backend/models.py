@@ -14,11 +14,33 @@ def _json_safe_float(v):
         return None
     return v
 
-
 def utc_now_second():
     """本地时间（系统时区），精确到秒（入库 DateTime 统一去掉微秒）。"""
     return datetime.now().replace(microsecond=0)
 
+
+# 达梦 VARCHAR/CLOB 走 GBK：Word 里常见的不间断空格 \xa0 等会导致入库 UnicodeEncodeError → 前端只看到 500
+_DB_TEXT_MAP = str.maketrans({
+    "\xa0": " ",
+    "\u202f": " ",
+    "\u2007": " ",
+    "\u2009": " ",
+    "\u200a": " ",
+    "\u200b": "",
+    "\ufeff": "",
+})
+
+
+def to_db_text(s) -> str:
+    """去掉达梦 GBK 存不下的空白符；其余无法编码的字符替换为问号。"""
+    if s is None:
+        return ""
+    text = str(s).translate(_DB_TEXT_MAP)
+    try:
+        text.encode("gbk")
+        return text
+    except UnicodeEncodeError:
+        return text.encode("gbk", errors="replace").decode("gbk")
 
 class CollectEndpoint(db.Model):
     """远程采集配置条目（可多条，每条独立 URL / 方法 / 头等）"""
@@ -105,6 +127,8 @@ class CleanData(db.Model):
             "endpoint_source": self.endpoint_source or "",
             "endpoint_category": self.endpoint_category or "",
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M:%S") if self.created_at else None,
+            "collect_time": self.created_at.strftime("%Y-%m-%d %H:%M:%S") if self.created_at else None,
+            "data_time": self.occur_time.strftime("%Y-%m-%d %H:%M:%S") if self.occur_time else None,
         }
 
 
@@ -119,7 +143,8 @@ class CollectTaggedValue(db.Model):
     value_path = db.Column(db.String(512))  # 从 item_raw_json 中推导出的字段路径（如 data.count）
     source_excerpt = db.Column(db.Text)  # 选中片段来源（可选，截断后的 item_raw_json）
     status = db.Column(db.String(16), default="pending")  # pending/stored
-    created_at = db.Column(db.DateTime, default=utc_now_second)
+    occur_time = db.Column(db.DateTime)  # 数据对应时间（业务产生时间，写入报告）
+    created_at = db.Column(db.DateTime, default=utc_now_second)  # 暂存时间
     stored_at = db.Column(db.DateTime)
 
     def to_dict(self):
@@ -132,6 +157,7 @@ class CollectTaggedValue(db.Model):
             "value_path": self.value_path,
             "status": self.status or "pending",
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M:%S") if self.created_at else None,
+            "occur_time": self.occur_time.strftime("%Y-%m-%d %H:%M:%S") if self.occur_time else None,
             "stored_at": self.stored_at.strftime("%Y-%m-%d %H:%M:%S") if self.stored_at else None,
         }
 
@@ -184,6 +210,7 @@ class ReportComposeDraft(db.Model):
     title = db.Column(db.String(255), nullable=False)
     content = db.Column(db.Text)
     status = db.Column(db.String(32), default="pending_polish")
+    status_detail = db.Column(db.String(512))
     bindings_json = db.Column(db.Text)
     file_blob = db.Column(db.LargeBinary)
     file_mime = db.Column(db.String(128))
@@ -208,12 +235,21 @@ class ReportComposeDraft(db.Model):
         excerpt = body[:160] + ("…" if len(body) > 160 else "")
         ok = self.office_kind()
         kind_zh = {"word": "Word", "ppt": "PPT"}.get(ok, "—" if not ok else "其他")
+        st = self.status or "pending_polish"
+        status_zh = {
+            "pending_polish": "待润色",
+            "polishing": "正在润色",
+            "polished": "润色完成",
+            "polish_error": "润色失败",
+        }.get(st, st)
         return {
             "id": self.id,
             "template_id": self.template_id,
             "template_name": self.template_name or "",
             "title": self.title,
-            "status": self.status or "pending_polish",
+            "status": st,
+            "status_zh": status_zh,
+            "status_detail": self.status_detail or "",
             "excerpt": excerpt,
             "has_file": bool(self.file_blob),
             "file_name": self.file_name or "",
@@ -288,6 +324,78 @@ class OperationLog(db.Model):
             "id": self.id, "module": self.module, "action": self.action,
             "detail": self.detail, "success": self.success,
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M:%S") if self.created_at else None,
+        }
+
+
+class OrgUnit(db.Model):
+    """战区/本级单位：各自配置基地 URL，共享同一套指标接口路径。"""
+    __tablename__ = "org_unit"
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(32), unique=True, nullable=False)
+    name = db.Column(db.String(64), nullable=False)
+    base_url = db.Column(db.String(2048))
+    aliases_json = db.Column(db.Text)
+    remark = db.Column(db.String(64))
+    sort_order = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=utc_now_second)
+    updated_at = db.Column(db.DateTime, default=utc_now_second, onupdate=utc_now_second)
+
+    def aliases(self):
+        if not self.aliases_json or not str(self.aliases_json).strip():
+            return [self.name] if self.name else []
+        try:
+            v = json.loads(self.aliases_json)
+            names = [str(x).strip() for x in v] if isinstance(v, list) else []
+        except (json.JSONDecodeError, TypeError):
+            names = []
+        if self.name and self.name not in names:
+            names.insert(0, self.name)
+        return [n for n in names if n]
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "code": self.code,
+            "name": self.name,
+            "base_url": self.base_url or "",
+            "remark": (self.remark or "").strip() or "运维、安防数据",
+            "aliases": self.aliases(),
+            "sort_order": self.sort_order or 0,
+            "updated_at": self.updated_at.strftime("%Y-%m-%d %H:%M:%S") if self.updated_at else None,
+        }
+
+
+class MetricSource(db.Model):
+    """共享指标接口：相对路径 + JSON 抽取规则，拼到各单位 base_url 上请求。"""
+    __tablename__ = "metric_source"
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(64), unique=True, nullable=False)
+    name = db.Column(db.String(128), nullable=False)
+    method = db.Column(db.String(16), default="GET")
+    path = db.Column(db.String(512), nullable=False)
+    extract_rules_json = db.Column(db.Text)
+    sort_order = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=utc_now_second)
+    updated_at = db.Column(db.DateTime, default=utc_now_second, onupdate=utc_now_second)
+
+    def rules(self):
+        if not self.extract_rules_json or not str(self.extract_rules_json).strip():
+            return []
+        try:
+            v = json.loads(self.extract_rules_json)
+            return v if isinstance(v, list) else []
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "code": self.code,
+            "name": self.name,
+            "method": self.method or "GET",
+            "path": self.path,
+            "rules": self.rules(),
+            "sort_order": self.sort_order or 0,
         }
 
 

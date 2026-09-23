@@ -49,11 +49,11 @@
       <div class="login-title">综合信息服务中心</div>
       <div class="login-sub">请登录后进入系统</div>
       <label class="login-field">
-        <span>用户名</span>
+        <span>用户名 <span class="help-tip" tabindex="0" data-tip="使用已开通的系统账号登录。"></span></span>
         <input id="login-user" type="text" autocomplete="username" maxlength="64" placeholder="请输入用户名" />
       </label>
       <label class="login-field">
-        <span>密码</span>
+        <span>密码 <span class="help-tip" tabindex="0" data-tip="登录密码。忘记请联系管理员重置。"></span></span>
         <input id="login-pass" type="password" autocomplete="current-password" maxlength="64" placeholder="请输入密码" />
       </label>
       <div id="login-err" class="login-err"></div>
@@ -105,7 +105,9 @@
             <svg class="icon icon-moon" width="14" height="14"><use href="#i-moon"/></svg>
             <svg class="icon icon-sun" width="14" height="14"><use href="#i-sun"/></svg>
           </button>
+          <span class="help-tip" tabindex="0" data-tip="切换深色 / 浅色外观，仅影响本机显示。"></span>
           <button class="btn small" onclick="Auth.logout()">退出登录</button>
+          <span class="help-tip" tabindex="0" data-tip="退出当前账号，返回登录页。"></span>
         </div>
       </div>
 
@@ -118,17 +120,42 @@
         <div class="page-header">
           <div>
             <h2>多源数据采集与管理</h2>
-            <div class="desc">远程采集 → 解析预览 → 标签暂存 → 入库 — 全流程可视</div>
           </div>
           <div class="actions">
-            <button type="button" class="btn" onclick="DataCollect.extractAll()"><svg class="icon" width="14" height="14"><use href="#i-play"/></svg> 顺序采集全部</button>
-            <button type="button" class="btn primary" onclick="DataCollect.openDrawer(null)"><svg class="icon" width="14" height="14"><use href="#i-plus"/></svg> 新增配置</button>
+            <span class="help-inline">
+              <button type="button" class="btn" onclick="DataCollect.extractAll()"><svg class="icon" width="14" height="14"><use href="#i-play"/></svg> 顺序采集全部</button>
+            </span>
+            <span class="help-inline">
+              <button type="button" class="btn primary" onclick="DataCollect.openDrawer(null)"><svg class="icon" width="14" height="14"><use href="#i-plus"/></svg> 新增配置</button>
+            </span>
           </div>
         </div>
 
         <div class="panel">
           <div class="panel-head">
-            <h3><svg class="icon" width="14" height="14"><use href="#i-link"/></svg> 远程采集配置</h3>
+            <h3><svg class="icon" width="14" height="14"><use href="#i-link"/></svg> 战区接口<span class="help-tip" tabindex="0" data-tip="六单位指标接口。先选时间范围再拉取；展示版不访问真实接口，会在所选时段内生成演示数据并入库。"></span></h3>
+            <div class="actions org-range-bar">
+              <label class="muted">自 <input type="datetime-local" id="org-date-from" class="input" /></label>
+              <label class="muted">至 <input type="datetime-local" id="org-date-to" class="input" /></label>
+              <span class="help-inline">
+                <button type="button" class="btn primary" onclick="DataCollect.fetchOrgMetrics()"><svg class="icon" width="14" height="14"><use href="#i-play"/></svg> 拉取全部指标</button>
+              </span>
+            </div>
+          </div>
+          <div class="panel-body flush">
+            <div class="table-wrap"><table id="org-unit-table">
+              <thead>
+                <tr><th>单位</th><th>基地 URL</th><th>备注</th><th>操作</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table></div>
+            <p class="panel-foot-hint muted">先填写时间范围，再点「拉取全部指标」：只采集该时段内的数据。展示版不访问真实接口，会在所选时段内随机生成数据对应时间并入库。</p>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h3><svg class="icon" width="14" height="14"><use href="#i-link"/></svg> 远程采集配置<span class="help-tip" tabindex="0" data-tip="自定义 HTTP 采集条目。可单条采集，或用页面上方「顺序采集全部」按序号依次请求。"></span></h3>
           </div>
           <div class="panel-body flush">
             <div class="table-wrap"><table id="endpoint-table">
@@ -150,17 +177,16 @@
             </div>
             <div class="form">
               <input type="hidden" id="ep-id" value="" />
-              <label>配置名称 <input type="text" id="ep-name" placeholder="便于识别的名称" maxlength="20" required /></label>
+              <label>配置名称 <span class="help-tip" tabindex="0" data-tip="便于识别的短名称，最多 20 字。"></span> <input type="text" id="ep-name" placeholder="便于识别的名称" maxlength="20" required /></label>
+              <label>接口 URL <span class="help-tip" tabindex="0" data-tip="须以 http:// 或 https:// 开头的完整地址。"></span> <input type="text" id="ep-url" autocomplete="off" spellcheck="false" placeholder="https://..." minlength="1" maxlength="2048" pattern="https?://.*" required /></label>
               <div class="grid2">
-                <label>接口 URL <input type="text" id="ep-url" autocomplete="off" spellcheck="false" placeholder="https://..." minlength="1" maxlength="2048" pattern="https?://.*" required /></label>
+                <label>默认来源 <span class="help-tip" tabindex="0" data-tip="写入解析记录时的默认来源标签，可留空。"></span> <input type="text" id="ep-source" maxlength="64" /></label>
+                <label>默认类别 <span class="help-tip" tabindex="0" data-tip="写入解析记录时的默认类别，可留空。"></span> <input type="text" id="ep-category" maxlength="64" /></label>
               </div>
-              <div class="grid2">
-                <label>默认来源 <input type="text" id="ep-source" maxlength="64" /></label>
-                <label>默认类别 <input type="text" id="ep-category" maxlength="64" /></label>
-              </div>
-              <div class="toolbar" style="margin-top:8px; justify-content:flex-end;">
-                <button type="button" class="btn primary" onclick="DataCollect.saveEndpoint()">保存配置</button>
-              </div>
+            </div>
+            <div class="drawer-foot">
+              <button type="button" class="btn" onclick="DataCollect.closeDrawer()">取消</button>
+              <button type="button" class="btn primary" onclick="DataCollect.saveEndpoint()">保存配置</button>
             </div>
           </div>
         </div>
@@ -168,7 +194,7 @@
         <div id="raw-preview-section" class="panel">
           <div id="raw-preview-table-block">
             <div class="panel-head">
-              <h3 class="raw-preview-subtitle"><svg class="icon" width="14" height="14"><use href="#i-sparkles"/></svg> 解析预览 <span class="panel-tag">不入库</span></h3>
+              <h3 class="raw-preview-subtitle"><svg class="icon" width="14" height="14"><use href="#i-sparkles"/></svg> 解析预览 <span class="panel-tag">不入库</span><span class="help-tip" tabindex="0" data-tip="采集原文只在此查看。在本条内容中选中文字后点「入库选中」，写入已入库数据。"></span></h3>
               <div class="actions">
                 <button type="button" class="btn" onclick="DataCollect.collapseRawPreview()">折叠</button>
                 <button type="button" class="btn danger" onclick="DataCollect.clearRawPreview()">清空</button>
@@ -177,7 +203,7 @@
             <p id="raw-preview-hint" class="hint" style="padding:10px 16px 0; margin:0;"></p>
             <div class="panel-body flush">
               <div class="table-wrap raw-preview-scroll" style="border:none; border-radius:0;"><table id="raw-preview-table">
-                <thead><tr><th>序号</th><th>所属配置</th><th>方式</th><th>来源</th><th>类别</th><th>URL</th><th>时间</th></tr></thead>
+                <thead><tr><th>序号</th><th>所属配置</th><th>方式</th><th>来源</th><th>类别</th><th>URL</th><th>数据时间</th></tr></thead>
                 <tbody></tbody>
               </table></div>
             </div>
@@ -186,23 +212,7 @@
 
         <div class="panel">
           <div class="panel-head">
-            <h3>标签暂存区 <span class="panel-tag">待入库</span></h3>
-            <div class="actions">
-              <button type="button" class="btn primary" onclick="DataCollect.storeAllTagged()">一键入库</button>
-              <button type="button" class="btn danger" onclick="DataCollect.clearTagged()">一键清空</button>
-            </div>
-          </div>
-          <div class="panel-body flush">
-            <div class="table-wrap" style="border:none; border-radius:0;"><table id="tagged-table">
-              <thead><tr><th>序号</th><th>所属配置</th><th>标签</th><th>值</th><th>来源</th><th>类别</th><th>状态</th><th>时间</th><th>ID</th><th>操作</th></tr></thead>
-              <tbody></tbody>
-            </table></div>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head">
-            <h3>已入库标签数据 <span class="panel-tag">按天聚合</span></h3>
+            <h3>已入库标签数据 <span class="panel-tag">按数据日期聚合</span><span class="help-tip" tabindex="0" data-tip="按数据对应日期分组。数据日期用于填入报告；采集时间是写入本系统的时间。点日期行可展开明细。"></span></h3>
             <div class="actions">
               <button type="button" class="btn" onclick="DataCollect.expandAllDays()">全展开</button>
               <button type="button" class="btn" onclick="DataCollect.collapseAllDays()">全折叠</button>
@@ -212,9 +222,10 @@
           </div>
           <div class="panel-body flush">
             <div class="table-wrap" style="border:none; border-radius:0;"><table id="clean-table" class="clean-by-day">
-              <thead><tr><th>序号</th><th>日期</th><th>条数</th><th>来源</th><th>类别</th><th class="nowrap">操作</th></tr></thead>
-              <tbody></tbody>
-            </table></div>
+              <thead><tr><th>序号</th><th>数据日期</th><th>条数</th><th>来源</th><th>类别</th><th class="nowrap">操作</th></tr></thead>
+                <tbody></tbody>
+              </table></div>
+            <p class="panel-foot-hint muted">数据日期 / 数据时间是指标真实产生的时间（填入报告用此时间）；采集时间是写入本系统的时间。</p>
           </div>
         </div>
       </div>
@@ -224,74 +235,71 @@
         <div class="page-header">
           <div>
             <h2>值勤数据分析与展示</h2>
-            <div class="desc">多维数据分析（近7天数据）</div>
           </div>
-          <div class="actions">
-            <span id="ana-total" class="muted"></span>
-            <button class="btn primary" onclick="Analysis.refresh()"><svg class="icon" width="14" height="14"><use href="#i-refresh"/></svg> 刷新分析</button>
-            <button class="btn" onclick="Analysis.save()"><svg class="icon" width="14" height="14"><use href="#i-database"/></svg> 数据存储</button>
+          <div class="actions org-range-bar">
+            <label class="muted">自 <input type="datetime-local" id="ana-date-from" class="input" /></label>
+            <label class="muted">至 <input type="datetime-local" id="ana-date-to" class="input" /></label>
+            <span class="help-inline">
+              <button type="button" class="btn primary" onclick="Analysis.refresh()"><svg class="icon" width="14" height="14"><use href="#i-refresh"/></svg> 刷新分析</button>
+            </span>
           </div>
         </div>
 
-        <!-- KPI -->
+        <div class="org-range-bar ana-filter-bar">
+          <label class="muted">单位
+            <select id="ana-unit" class="input" onchange="Analysis.onFilterChange()">
+              <option value="all">全部</option>
+            </select>
+          </label>
+          <label class="muted">图表
+            <select id="ana-chart-type" class="input" onchange="Analysis.onFilterChange()">
+              <option value="bar">柱状图</option>
+              <option value="line">折线图</option>
+              <option value="pie">扇形图</option>
+            </select>
+          </label>
+        </div>
+
         <div class="kpi-grid">
           <div class="kpi">
-            <div class="kpi-label"><span class="dot" style="background:var(--c1)"></span>样本总量</div>
-            <div class="kpi-num"><span id="ana-kpi-total">-</span><span class="unit">条</span></div>
-            <span class="kpi-trend" id="ana-kpi-total-trend"></span>
-            <div id="ana-kpi-total-spark" class="kpi-spark"></div>
+            <div class="kpi-label"><span class="dot" style="background:var(--c1)"></span>节点在线率<span class="help-tip" tabindex="0" data-tip="在线节点数占节点总数的百分率，按所选单位与时间范围取值。"></span></div>
+            <div class="kpi-num"><span id="ana-kpi-rate">-</span><span class="unit" id="ana-kpi-rate-unit"></span></div>
+            <div id="ana-kpi-rate-spark" class="kpi-spark"></div>
           </div>
           <div class="kpi">
-            <div class="kpi-label"><span class="dot" style="background:var(--c2)"></span>日均采集</div>
-            <div class="kpi-num"><span id="ana-kpi-avg">-</span><span class="unit">条/日</span></div>
-            <span class="kpi-trend" id="ana-kpi-avg-trend"></span>
-            <div id="ana-kpi-avg-spark" class="kpi-spark"></div>
+            <div class="kpi-label"><span class="dot" style="background:var(--c2)"></span>设备完好率<span class="help-tip" tabindex="0" data-tip="设备完好百分率，按所选单位与时间范围取值。"></span></div>
+            <div class="kpi-num"><span id="ana-kpi-eq">-</span><span class="unit" id="ana-kpi-eq-unit"></span></div>
+            <div id="ana-kpi-eq-spark" class="kpi-spark"></div>
           </div>
           <div class="kpi">
-            <div class="kpi-label"><span class="dot" style="background:var(--c4)"></span>峰值/日</div>
-            <div class="kpi-num"><span id="ana-kpi-peak">-</span><span class="unit">条</span></div>
-            <span class="kpi-trend" id="ana-kpi-peak-trend"></span>
-            <div id="ana-kpi-peak-spark" class="kpi-spark"></div>
+            <div class="kpi-label"><span class="dot" style="background:var(--c4)"></span>入网用户<span class="help-tip" tabindex="0" data-tip="入网用户数，按所选单位与时间范围取值。"></span></div>
+            <div class="kpi-num"><span id="ana-kpi-user">-</span><span class="unit" id="ana-kpi-user-unit"></span></div>
+            <div id="ana-kpi-user-spark" class="kpi-spark"></div>
           </div>
           <div class="kpi">
-            <div class="kpi-label"><span class="dot" style="background:var(--c3)"></span>覆盖来源</div>
-            <div class="kpi-num"><span id="ana-kpi-src">-</span><span class="unit">个</span></div>
-            <span class="kpi-trend" id="ana-kpi-src-trend"></span>
-            <div id="ana-kpi-src-spark" class="kpi-spark"></div>
+            <div class="kpi-label"><span class="dot" style="background:var(--c3)"></span>在线节点<span class="help-tip" tabindex="0" data-tip="当前在线节点个数，按所选单位与时间范围取值。"></span></div>
+            <div class="kpi-num"><span id="ana-kpi-nodes">-</span><span class="unit" id="ana-kpi-nodes-unit"></span></div>
+            <div id="ana-kpi-nodes-spark" class="kpi-spark"></div>
           </div>
         </div>
 
-        <!-- Row 1: source pie + category bar -->
         <div class="chart-grid cols-2">
           <div class="panel">
-            <div class="panel-head"><h3>按来源</h3></div>
-            <div class="panel-body flush"><div id="ana-source" class="chart"></div></div>
+            <div class="panel-head"><h3>运行百分率<span class="help-tip" tabindex="0" data-tip="节点在线率、设备完好率、计算与存储资源使用率随时间变化。"></span></h3></div>
+            <div class="panel-body flush"><div id="ana-rates" class="chart"></div></div>
           </div>
           <div class="panel">
-            <div class="panel-head"><h3>按类别</h3></div>
-            <div class="panel-body flush"><div id="ana-cat" class="chart"></div></div>
+            <div class="panel-head"><h3>业务量<span class="help-tip" tabindex="0" data-tip="入网用户、数据服务量、文档交互量随时间变化。"></span></h3></div>
+            <div class="panel-body flush"><div id="ana-volumes" class="chart"></div></div>
           </div>
         </div>
 
-        <!-- Row 2: full-width time trend -->
         <div class="panel" style="margin-bottom:var(--gap);">
           <div class="panel-head">
-            <h3>按时间 — 入库量趋势</h3>
-            <span class="tag accent">近 7 日</span>
+            <h3>在线节点<span class="help-tip" tabindex="0" data-tip="在线节点数随数据对应时间的变化。"></span></h3>
+            <span class="tag" id="ana-trend-tag">数据对应时间</span>
           </div>
-          <div class="panel-body flush"><div id="ana-date" class="chart tall"></div></div>
-        </div>
-
-        <!-- Row 3: value bar + per-source contribution -->
-        <div class="chart-grid cols-2">
-          <div class="panel">
-            <div class="panel-head"><h3>按数值 — 类别累计</h3></div>
-            <div class="panel-body flush"><div id="ana-value" class="chart"></div></div>
-          </div>
-          <div class="panel">
-            <div class="panel-head"><h3>来源占比 — 横向对比</h3></div>
-            <div class="panel-body flush"><div id="ana-source-h" class="chart"></div></div>
-          </div>
+          <div class="panel-body flush"><div id="ana-trend" class="chart tall"></div></div>
         </div>
       </div>
 
@@ -300,7 +308,12 @@
         <div class="page-header">
           <div>
             <h2>值勤报告辅助生成</h2>
-            <div class="desc">模板采集 → 占位映射 → 保存草稿纠错；正式报告在「报告在线管理」中归档</div>
+          </div>
+          <div class="actions">
+            <span id="gen-llm-status" class="muted" style="font-size:12px;"></span>
+            <span class="help-inline">
+              <button type="button" class="btn primary" onclick="Generate.openLlmDrawer()"><svg class="icon" width="14" height="14"><use href="#i-sparkles"/></svg> 大模型配置</button>
+            </span>
           </div>
         </div>
 
@@ -308,15 +321,15 @@
         <div class="steps" id="gen-steps">
           <div class="step done" data-step="1">
             <div class="num">1</div>
-            <div class="step-text"><div class="step-title">模板采集</div><div class="step-desc">上传 .docx</div></div>
+            <div class="step-text"><div class="step-title">模板采集<span class="help-tip" tabindex="0" data-tip="上传 .docx 或 .pptx 模板，系统抽取正文中的连续 X 作为占位。"></span></div><div class="step-desc">上传 .docx</div></div>
           </div>
           <div class="step active" data-step="2">
             <div class="num">2</div>
-            <div class="step-text"><div class="step-title">占位映射</div><div class="step-desc">连续 X、与入库数据对应</div></div>
+            <div class="step-text"><div class="step-title">占位映射<span class="help-tip" tabindex="0" data-tip="把每个 X 对应到手填文字或已入库记录；也可让 AI 按指标自动填写。"></span></div><div class="step-desc">连续 X、与入库数据对应</div></div>
           </div>
           <div class="step" data-step="3">
             <div class="num">3</div>
-            <div class="step-text"><div class="step-title">报告生成</div><div class="step-desc">草稿列表与正式报告分流</div></div>
+            <div class="step-text"><div class="step-title">报告生成<span class="help-tip" tabindex="0" data-tip="合成草稿可润色纠错后正式保存；正式报告在「报告在线管理」中查看。"></span></div><div class="step-desc">草稿列表与正式报告分流</div></div>
           </div>
         </div>
 
@@ -324,17 +337,17 @@
         <div class="chart-grid cols-1">
           <div class="panel">
             <div class="panel-head">
-              <h3><svg class="icon" width="14" height="14"><use href="#i-upload"/></svg> ① 报告模板采集</h3>
+              <h3><svg class="icon" width="14" height="14"><use href="#i-upload"/></svg> ① 报告模板采集<span class="help-tip" tabindex="0" data-tip="拖入或选择 .docx / .pptx，选好即上传。模板名取自文件名。仅支持这两种格式。"></span></h3>
               <span class="muted" id="tpl-count"></span>
             </div>
             <div class="panel-body">
               <form id="upload-form" enctype="multipart/form-data">
                 <div class="upload-zone" id="tpl-upload-zone" tabindex="0">
-                  <input type="file" name="file" id="tpl-file-input" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
+                  <input type="file" name="file" id="tpl-file-input" accept=".docx,.pptx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation" hidden />
                   <svg class="upload-icon" width="36" height="36"><use href="#i-upload"/></svg>
                   <div class="upload-hint">
                     <strong>拖入文件</strong> 或 <span class="upload-link">点击选择</span>
-                    <span class="muted">仅支持 .docx，选好即自动上传；模板名称取自文件名，长度 1–128 字符</span>
+                    <span class="muted">支持 .docx / .pptx，选好即自动上传；模板名称取自文件名，长度 1–128 字符</span>
                   </div>
                   <div class="upload-file" id="tpl-file-name"></div>
                 </div>
@@ -350,31 +363,87 @@
 
           <div class="panel">
             <div class="panel-head">
-              <h3><svg class="icon" width="14" height="14"><use href="#i-edit"/></svg> ② 模板预览与 X 占位映射</h3>
-              <span class="tag accent">入库 / 手工</span>
+              <h3><svg class="icon" width="14" height="14"><use href="#i-edit"/></svg> ② 模板填报<span class="help-tip" tabindex="0" data-tip="先选模板和时间范围。可手工映射 X，或用 AI 按指标填数字并起草空章节。"></span></h3>
+              <span class="tag accent" id="gen-fill-tag">入库 / 手工</span>
             </div>
             <div class="panel-body">
               <label class="block-label">选择模板（上方上传后在此列出）
                 <select id="gen-template"><option value="">（请先上传模板）</option></select>
               </label>
-              <p id="gen-tpl-hint" class="muted" style="margin:6px 0 10px;font-size:12px;">选择模板后，服务端将 <strong>.docx 按 zip 解压</strong> 并抽取全文；<strong>左侧</strong>为全文预览（正文中标出 X，与编号一致，表格按制表符分列），<strong>右侧</strong>为占位映射。连续 <code>X</code> 占位规则不变。</p>
-              <div class="gen-preview-slot-row">
-                <div class="gen-preview-col">
-                  <div id="gen-tpl-preview-wrap" class="hidden">
-                    <div class="mini-bar"><span id="gen-tpl-preview-title">全文预览（X 已内联标注）</span><span class="muted" id="gen-ph-count"></span></div>
-                    <div id="gen-tpl-preview" class="gen-tpl-preview" aria-live="polite"></div>
+              <div class="gen-autofill-bar">
+                <label class="muted">自 <input type="date" id="gen-af-from" class="input" /></label>
+                <label class="muted">至 <input type="date" id="gen-af-to" class="input" /></label>
+                <label class="muted">单位
+                  <select id="gen-af-unit" class="input">
+                    <option value="all">全部</option>
+                    <option value="hq" selected>空军本级</option>
+                    <option value="east">东部</option>
+                    <option value="west">西部</option>
+                    <option value="south">南部</option>
+                    <option value="north">北部</option>
+                    <option value="center">中部</option>
+                  </select>
+                </label>
+                <label class="muted">指标
+                  <select id="gen-af-metric" class="input">
+                    <option value="all">全部</option>
+                    <option value="all_counts">节点总数</option>
+                    <option value="online_counts">在线节点数</option>
+                    <option value="built_counts">已建节点数</option>
+                    <option value="node_ratio">在线节点/节点数</option>
+                    <option value="node_online_rate">节点在线率</option>
+                    <option value="equipment_ok_rate">设备完好率</option>
+                    <option value="js_resource_pct">计算资源使用率</option>
+                    <option value="storage_resource_pct">存储空间使用率</option>
+                    <option value="access_network_user">入网用户数</option>
+                    <option value="data_service_volume">数据服务量</option>
+                    <option value="doc_interaction">文档交互量</option>
+                  </select>
+                </label>
+              </div>
+              <div class="gen-fill-tabs" role="tablist">
+                <span class="help-inline">
+                  <button type="button" class="gen-fill-tab active" data-tab="map" role="tab" aria-selected="true" onclick="Generate.setFillTab('map')">模板预览与 X 占位映射</button>
+                </span>
+                <button type="button" class="gen-fill-tab" data-tab="ai" role="tab" aria-selected="false" onclick="Generate.setFillTab('ai')">AI 自动填写</button>
+              </div>
+              <div id="gen-ai-fill-banner" class="gen-ai-fill-banner hidden" role="status" aria-live="polite">
+                <span class="gen-ai-spinner" aria-hidden="true"></span>
+                <span id="gen-ai-fill-banner-text">正在生成文档…</span>
+              </div>
+              <div id="gen-fill-pane-map" class="gen-fill-pane" role="tabpanel">
+                <p id="gen-tpl-hint" class="muted" style="margin:6px 0 10px;font-size:12px;">选择模板后，服务端将 <strong>.docx / .pptx 按 zip 解压</strong> 并抽取全文；<strong>左侧</strong>为全文预览（正文中标出 X，与编号一致，表格按制表符分列），<strong>右侧</strong>为占位映射。点「入库」时，下拉只列出该时间范围、单位和指标下的记录。</p>
+                <div class="gen-preview-slot-row">
+                  <div class="gen-preview-col">
+                    <div id="gen-tpl-preview-wrap" class="hidden">
+                      <div class="mini-bar"><span id="gen-tpl-preview-title">全文预览（X 已内联标注）</span><span class="help-tip" tabindex="0" data-tip="正文中的 X 按编号标出，与右侧映射一致。表格按制表符分列。"></span><span class="muted" id="gen-ph-count"></span></div>
+                      <div id="gen-tpl-preview" class="gen-tpl-preview" aria-live="polite"></div>
+                    </div>
                   </div>
+                  <aside class="gen-slot-col" aria-label="X 占位映射">
+                    <div class="mini-bar gen-slot-col-head"><span>占位映射</span><span class="help-tip" tabindex="0" data-tip="手填：直接输入替换文字。入库：从上方时间、单位、指标筛出的记录中选择。"></span></div>
+                    <div id="gen-slot-list" class="gen-slot-list"></div>
+                    <div class="toolbar gen-slot-actions gen-slot-actions--compact" style="margin-top:8px;flex-wrap:wrap;gap:6px;">
+                      <span class="help-inline">
+                        <button type="button" class="btn small primary" onclick="Generate.applyMappingToLeftPreview()">替换</button>
+                      </span>
+                      <span class="help-inline">
+                        <button type="button" class="btn small" onclick="Generate.openPreviewInWord()">下载预览</button>
+                      </span>
+                      <span class="help-inline">
+                        <button type="button" class="btn small" onclick="Generate.refreshCleanList()">刷新入库列表</button>
+                      </span>
+                      <span class="help-inline">
+                        <button type="button" class="btn small" onclick="Generate.saveComposeDraft()">保存合成草稿</button>
+                      </span>
+                    </div>
+                  </aside>
                 </div>
-                <aside class="gen-slot-col" aria-label="X 占位映射">
-                  <div class="mini-bar gen-slot-col-head"><span>占位映射</span></div>
-                  <div id="gen-slot-list" class="gen-slot-list"></div>
-                  <div class="toolbar gen-slot-actions gen-slot-actions--compact" style="margin-top:8px;flex-wrap:wrap;gap:6px;">
-                    <button type="button" class="btn small primary" onclick="Generate.applyMappingToLeftPreview()" title="按当前手填与入库选择在左侧全文预览中执行全部替换">替换</button>
-                    <button type="button" class="btn small" onclick="Generate.openPreviewInWord()" title="下载当前映射替换后的 .docx 文件">下载预览</button>
-                    <button type="button" class="btn small" onclick="Generate.refreshCleanList()">刷新入库列表</button>
-                    <button type="button" class="btn small" onclick="Generate.saveComposeDraft()" title="将当前占位替换全文存入草稿库（待纠错润色，非正式报告）">保存合成草稿</button>
-                  </div>
-                </aside>
+              </div>
+              <div id="gen-fill-pane-ai" class="gen-fill-pane hidden" role="tabpanel">
+                <div class="gen-ai-fill-actions">
+                  <button type="button" class="btn primary" id="gen-ai-fill-btn" onclick="Generate.autofillTemplate()"><svg class="icon" width="14" height="14"><use href="#i-sparkles"/></svg> AI 自动填写</button>
+                </div>
               </div>
             </div>
           </div>
@@ -383,13 +452,14 @@
         <!-- Row 2: 纠错与归档 · 合成草稿 -->
         <div class="panel">
           <div class="panel-head">
-            <h3><svg class="icon" width="14" height="14"><use href="#i-file"/></svg> ③ 报告生成</h3>
+            <h3><svg class="icon" width="14" height="14"><use href="#i-file"/></svg> ③ 报告生成<span class="help-tip" tabindex="0" data-tip="此处是合成草稿。润色纠错后可正式保存；归档后的正式报告在「报告在线管理」。"></span></h3>
             <span class="muted">以下为已保存的合成草稿；正式报告请在「报告在线管理」中新增或编辑</span>
           </div>
           <div class="panel-body">
             <div class="gen-compose-draft-bar">
               <div class="mini-bar" style="margin-bottom:6px;">
                 <span>已保存的合成草稿</span>
+                <span class="help-tip" tabindex="0" data-tip="待纠错润色，尚未写入正式报告库。"></span>
                 <span id="gen-compose-draft-meta" class="muted" style="font-size:12px;margin-left:8px;">待纠错润色，非 duty_report</span>
               </div>
               <div class="gen-compose-filters" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;font-size:12px;">
@@ -412,14 +482,41 @@
                 <table class="data-table" style="font-size:12px;margin:0;">
                   <thead>
                     <tr>
-                      <th>ID</th><th>标题</th><th>模板</th><th>类型</th><th>保存时间</th><th>操作</th>
+                      <th>ID</th><th>标题</th><th>模板</th><th>类型</th><th>状态</th><th>保存时间</th><th>操作</th>
                     </tr>
                   </thead>
                   <tbody id="gen-compose-draft-tbody">
-                    <tr><td colspan="6" class="muted" style="text-align:center;padding:12px;">加载中…</td></tr>
+                    <tr><td colspan="7" class="muted" style="text-align:center;padding:12px;">加载中…</td></tr>
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="llm-drawer" class="drawer hidden">
+          <div class="drawer-mask" onclick="Generate.closeLlmDrawer()"></div>
+          <div class="drawer-panel">
+            <div class="drawer-head">
+              <span>大模型配置</span>
+              <button type="button" class="btn small" onclick="Generate.closeLlmDrawer()">关闭</button>
+            </div>
+            <div class="form">
+              <label>接口地址 <span class="help-tip" tabindex="0" data-tip="OpenAI 兼容接口，如 http://主机:端口 或 …/v1。保存后请求 /v1/chat/completions。"></span>
+                <input type="url" id="gen-llm-base" placeholder="http://主机:端口 或 …/v1" maxlength="2048" autocomplete="off" spellcheck="false" />
+              </label>
+              <label>模型名 <span class="help-tip" tabindex="0" data-tip="服务端实际部署的模型名称，须与接口一致。"></span>
+                <input type="text" id="gen-llm-model" placeholder="如 qwen2.5 或 gpt-4o" maxlength="128" autocomplete="off" spellcheck="false" />
+              </label>
+              <label>API Key <span class="help-tip" tabindex="0" data-tip="内网模型通常可留空。已保存的密钥不回显，留空表示不修改。"></span>
+                <input type="password" id="gen-llm-key" placeholder="无需密钥可留空；已保存的不回显" maxlength="2048" autocomplete="new-password" spellcheck="false" />
+              </label>
+              <label class="inline-check"><input type="checkbox" id="gen-llm-clear-key" /> 清除已保存的密钥</label>
+            </div>
+            <div class="drawer-foot">
+              <button type="button" class="btn" onclick="Generate.closeLlmDrawer()">取消</button>
+              <button type="button" class="btn" onclick="Generate.testLlmConfig()">测试连接</button>
+              <button type="button" class="btn primary" onclick="Generate.saveLlmConfig()">保存配置</button>
             </div>
           </div>
         </div>
@@ -430,33 +527,32 @@
         <div class="page-header">
           <div>
             <h2>值勤报告在线管理</h2>
-            <div class="desc">值勤报告 增 / 删 / 改 / 查 · 导出 Word</div>
           </div>
         </div>
 
         <div class="panel">
-          <div class="panel-head"><h3><svg class="icon" width="14" height="14"><use href="#i-search"/></svg> 检索与列表</h3></div>
+          <div class="panel-head"><h3><svg class="icon" width="14" height="14"><use href="#i-search"/></svg> 检索与列表<span class="help-tip" tabindex="0" data-tip="按标题、日期和文稿类型筛选已归档报告。"></span></h3></div>
           <div class="panel-body flush">
             <div class="mng-report-bar" style="padding:12px 16px;">
               <div class="mini-bar" style="margin-bottom:6px;">
                 <span>检索条件</span>
                 <span id="mng-rpt-meta" class="muted" style="font-size:12px;margin-left:8px;">设置条件后点击查询</span>
               </div>
-              <div class="gen-compose-filters" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:0;font-size:12px;">
+              <div class="gen-compose-filters mng-filter-row">
                 <label for="mng-q" class="muted">搜索</label>
-                <input type="search" id="mng-q" class="input" placeholder="按标题搜索…" maxlength="128" style="min-width:160px;padding:4px 8px;font-size:12px;" autocomplete="off" />
+                <input type="search" id="mng-q" class="input" placeholder="按标题搜索…" maxlength="128" autocomplete="off" />
                 <label for="mng-date-from" class="muted">自</label>
-                <input type="date" id="mng-date-from" class="input" style="padding:4px 8px;font-size:12px;" />
+                <input type="date" id="mng-date-from" class="input" />
                 <label for="mng-date-to" class="muted">至</label>
-                <input type="date" id="mng-date-to" class="input" style="padding:4px 8px;font-size:12px;" />
+                <input type="date" id="mng-date-to" class="input" />
                 <label for="mng-office" class="muted">类型</label>
-                <select id="mng-office" class="input" style="padding:4px 8px;font-size:12px;">
+                <select id="mng-office" class="input">
                   <option value="all">全部</option>
                   <option value="word">Word</option>
                   <option value="ppt">PPT</option>
                 </select>
                 <button type="button" class="btn small primary" onclick="Manage.search()">查询</button>
-                <button type="button" class="btn small" onclick="Manage.openImport()" title="从本地选择 .docx / .doc / .pptx / .ppt 文件，直接导入数据库"><svg class="icon" width="14" height="14"><use href="#i-upload"/></svg> 新增报告</button>
+                <button type="button" class="btn small" onclick="Manage.openImport()"><svg class="icon" width="14" height="14"><use href="#i-upload"/></svg> 新增报告</button>
                 <input type="file" id="mng-import-input" accept=".docx,.doc,.pptx,.ppt" hidden />
               </div>
             </div>
@@ -478,17 +574,17 @@
             </div>
             <div class="form">
               <input type="hidden" id="f-id" />
-              <label>标题 <input type="text" id="f-title" maxlength="255" required /></label>
+              <label>标题 <span class="help-tip" tabindex="0" data-tip="正式报告标题，列表检索按此字段。"></span> <input type="text" id="f-title" maxlength="255" required /></label>
               <div class="grid2">
-                <label>文稿类型（Office）
+                <label>文稿类型（Office） <span class="help-tip" tabindex="0" data-tip="标记该报告附件为 Word 或 PPT，用于列表筛选与导出。"></span>
                   <select id="f-type">
                     <option value="word">Word</option>
                     <option value="ppt">PPT</option>
                   </select>
                 </label>
-                <label>报告日期 <input type="date" id="f-date" /></label>
+                <label>报告日期 <span class="help-tip" tabindex="0" data-tip="报告对应的业务日期，不是上传当天。"></span> <input type="date" id="f-date" /></label>
               </div>
-              <label>正文 <textarea id="f-content" rows="14" maxlength="2000000"></textarea></label>
+              <label>正文 <span class="help-tip" tabindex="0" data-tip="报告纯文本正文，可与 Office 附件同时保存。"></span> <textarea id="f-content" rows="14" maxlength="2000000"></textarea></label>
               <div class="toolbar" style="justify-content:flex-end;">
                 <button class="btn primary" onclick="Manage.save()">保存</button>
               </div>
@@ -511,7 +607,7 @@
         </div>
 
         <div class="panel">
-          <div class="panel-head"><h3><svg class="icon" width="14" height="14"><use href="#i-search"/></svg> 检索与列表</h3></div>
+          <div class="panel-head"><h3><svg class="icon" width="14" height="14"><use href="#i-search"/></svg> 检索与列表<span class="help-tip" tabindex="0" data-tip="按模块、操作或详情关键字筛选日志。"></span></h3></div>
           <div class="panel-body flush">
             <div class="mng-report-bar" style="padding:12px 16px;">
               <div class="gen-compose-filters" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12px;">
@@ -534,8 +630,7 @@
       <div id="page-users" class="page">
         <div class="page-header">
           <div>
-            <h2>用户管理</h2>
-            <div class="desc">系统登录用户 增 / 删 / 改 / 查（当前登录用户不可删除）</div>
+            <h2>用户管理<span class="help-tip" tabindex="0" data-tip="管理系统登录账号。当前登录用户不能删除自己。"></span></h2>
           </div>
           <div class="actions">
             <span id="user-meta" class="muted"></span>
@@ -545,7 +640,7 @@
         </div>
 
         <div class="panel">
-          <div class="panel-head"><h3><svg class="icon" width="14" height="14"><use href="#i-search"/></svg> 用户列表</h3></div>
+          <div class="panel-head"><h3><svg class="icon" width="14" height="14"><use href="#i-search"/></svg> 用户列表<span class="help-tip" tabindex="0" data-tip="所有可登录本系统的账号。"></span></h3></div>
           <div class="panel-body flush">
             <div class="mng-report-bar" style="padding:12px 16px;">
               <div class="gen-compose-filters" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12px;">
@@ -568,45 +663,34 @@
   </div>
 
   <!-- ========== 用户 新增/编辑 弹窗 ========== -->
-  <div id="user-edit-modal" class="modal-center hidden">
+  <div id="user-edit-modal" class="modal-center hidden" role="dialog" aria-modal="true" aria-labelledby="user-edit-title">
     <div class="modal-center-mask" onclick="Users.closeModal()"></div>
-    <div class="modal-center-dialog">
+    <div class="modal-center-dialog modal-center-dialog-sm">
       <div class="modal-center-head">
         <span class="modal-center-title" id="user-edit-title">新增用户</span>
         <button type="button" class="btn small" onclick="Users.closeModal()">关闭</button>
       </div>
-      <div class="form">
+      <form class="form" onsubmit="event.preventDefault(); Users.save();">
         <input type="hidden" id="user-edit-id" value="" />
-        <label>用户名 <input type="text" id="user-edit-name" maxlength="64" placeholder="2-64 个字符" autocomplete="off" name="su_new_username" /></label>
-        <label id="user-edit-pass-wrap">密码 <input type="password" id="user-edit-pass" maxlength="64" autocomplete="new-password" placeholder="请输入密码" name="su_new_password" /></label>
-        <label>确认密码 <input type="password" id="user-edit-pass2" maxlength="64" autocomplete="new-password" placeholder="请再次输入密码" /></label>
-        <div id="user-edit-err" class="login-err"></div>
-        <div class="toolbar" style="justify-content:flex-end;">
-          <button type="button" class="btn primary" onclick="Users.save()">保存</button>
-        </div>
+        <label>用户名
+          <input type="text" id="user-edit-name" maxlength="64" placeholder="请输入用户名" autocomplete="off" name="su_new_username" />
+        </label>
+        <label id="user-edit-pass-wrap">密码
+          <input type="password" id="user-edit-pass" maxlength="64" autocomplete="new-password" placeholder="请输入密码" name="su_new_password" />
+        </label>
+        <label>确认密码
+          <input type="password" id="user-edit-pass2" maxlength="64" autocomplete="new-password" placeholder="请再次输入密码" />
+        </label>
+        <div id="user-edit-err" class="modal-err"></div>
+      </form>
+      <div class="modal-center-foot">
+        <button type="button" class="btn" onclick="Users.closeModal()">取消</button>
+        <button type="button" class="btn primary" onclick="Users.save()">保存</button>
       </div>
     </div>
   </div>
 
   <!-- ========== Modals ========== -->
-  <div id="tag-edit-modal" class="modal-center hidden">
-    <div class="modal-center-mask" onclick="DataCollect.closeTagEditModal()"></div>
-    <div class="modal-center-dialog">
-      <div class="modal-center-head">
-        <span class="modal-center-title">修改标签暂存</span>
-        <button type="button" class="btn small" onclick="DataCollect.closeTagEditModal()">关闭</button>
-      </div>
-      <div class="form">
-        <input type="hidden" id="tag-edit-id" value="" />
-        <label>标签 <input type="text" id="tag-edit-tag" maxlength="64" /></label>
-        <label>值 <textarea id="tag-edit-value" rows="8" maxlength="20000" required></textarea></label>
-        <div class="toolbar" style="justify-content:flex-end;">
-          <button type="button" class="btn primary" onclick="DataCollect.saveTagEdit()">保存修改</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <div id="clean-edit-modal" class="modal-center hidden">
     <div class="modal-center-mask" onclick="DataCollect.closeCleanEditModal()"></div>
     <div class="modal-center-dialog">
@@ -616,17 +700,22 @@
       </div>
       <div class="form">
         <input type="hidden" id="clean-edit-id" value="" />
-        <label>所属配置 <input type="text" id="clean-edit-source" maxlength="64" placeholder="对应远程采集配置的名称" /></label>
-        <label>标签 <input type="text" id="clean-edit-tags" maxlength="255" /></label>
+        <label>所属配置 <span class="help-tip" tabindex="0" data-tip="对应远程采集配置的名称，便于追溯来自哪条接口。"></span> <input type="text" id="clean-edit-source" maxlength="64" placeholder="对应远程采集配置的名称" /></label>
+        <label>标签 <span class="help-tip" tabindex="0" data-tip="指标或字段名称，填报选入库记录时会看到。"></span> <input type="text" id="clean-edit-tags" maxlength="255" /></label>
         <div class="grid2">
-          <label>来源 <input type="text" id="clean-edit-endpoint-source" maxlength="64" placeholder="留空则按所属配置自动反查" /></label>
-          <label>类别 <input type="text" id="clean-edit-endpoint-category" maxlength="64" placeholder="留空则按所属配置自动反查" /></label>
+          <label>来源 <span class="help-tip" tabindex="0" data-tip="数据来源。留空则按所属配置自动反查。"></span> <input type="text" id="clean-edit-endpoint-source" maxlength="64" placeholder="留空则按所属配置自动反查" /></label>
+          <label>类别 <span class="help-tip" tabindex="0" data-tip="业务类别。留空则按所属配置自动反查。"></span> <input type="text" id="clean-edit-endpoint-category" maxlength="64" placeholder="留空则按所属配置自动反查" /></label>
         </div>
-        <label>入库类别 <input type="text" id="clean-edit-category" maxlength="64" placeholder="例如：标签入库" /></label>
-        <label>值 <textarea id="clean-edit-content" rows="8" maxlength="500000" required></textarea></label>
-        <div class="toolbar" style="justify-content:flex-end;">
-          <button type="button" class="btn primary" onclick="DataCollect.saveCleanEdit()">保存修改</button>
+        <label>入库类别 <span class="help-tip" tabindex="0" data-tip="写入已入库表时的分类，例如「标签入库」。"></span> <input type="text" id="clean-edit-category" maxlength="64" placeholder="例如：标签入库" /></label>
+        <div class="grid2">
+          <label>采集时间 <span class="help-tip" tabindex="0" data-tip="写入本系统的时间，不可改。"></span> <input type="text" id="clean-edit-collect-time" readonly placeholder="入库时自动记录" /></label>
+          <label>数据对应时间 <span class="help-tip" tabindex="0" data-tip="指标真实产生的时间，填入报告用此时间。"></span> <input type="datetime-local" id="clean-edit-occur-time" /></label>
         </div>
+        <label>值 <span class="help-tip" tabindex="0" data-tip="入库正文，映射到模板 X 时使用。"></span> <textarea id="clean-edit-content" rows="8" maxlength="500000" required></textarea></label>
+      </div>
+      <div class="modal-center-foot">
+        <button type="button" class="btn" onclick="DataCollect.closeCleanEditModal()">取消</button>
+        <button type="button" class="btn primary" onclick="DataCollect.saveCleanEdit()">保存修改</button>
       </div>
     </div>
   </div>

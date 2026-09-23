@@ -7,7 +7,7 @@ from flask import Blueprint, jsonify, request
 from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
 
-from models import CollectEndpoint, CleanData, CollectTaggedValue, db, utc_now_second
+from models import CollectEndpoint, CleanData, CollectTaggedValue, OrgUnit, MetricSource, db, utc_now_second, to_db_text
 from services import data_service
 from services.log_service import log_op
 from validators import (
@@ -16,8 +16,12 @@ from validators import (
     L_EP_FIELD_MAP_JSON,
     L_EP_HEADERS_JSON,
     L_EP_NAME,
+    L_ORG_REMARK,
+    L_ORG_NAME,
+    default_data_occur_time,
     optional_str,
     optional_text,
+    parse_datetime_value,
     require_http_method,
     require_json_object_text,
     require_str,
@@ -28,6 +32,35 @@ from validators import (
 )
 
 bp = Blueprint("data_collection", __name__, url_prefix="/api/data")
+
+
+def _occur_from_excerpt(text):
+    """从暂存原文 JSON 里抽出业务时间。"""
+    if not text:
+        return None
+    try:
+        js = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(js, dict):
+        return None
+    keys = (
+        "occur_time", "occurTime", "data_time", "dataTime",
+        "stat_time", "statTime", "time", "timestamp", "ts", "date",
+    )
+    candidates = [js]
+    data = js.get("data")
+    if isinstance(data, dict):
+        candidates.append(data)
+    for obj in candidates:
+        for k in keys:
+            try:
+                dt = parse_datetime_value(obj.get(k), "数据对应时间")
+            except ValidationError:
+                dt = None
+            if dt:
+                return dt
+    return None
 
 
 def _navigate_path(obj, path: str):
@@ -390,7 +423,32 @@ def extract():
 def list_clean():
     page = int(request.args.get("page", 1))
     size = int(request.args.get("size", 20))
-    q = CleanData.query.order_by(CleanData.id.desc())
+    q = CleanData.query
+
+    df = (request.args.get("date_from") or "").strip()
+    dt = (request.args.get("date_to") or "").strip()
+    unit = (request.args.get("unit") or "").strip().lower()
+    if df:
+        try:
+            start = datetime.strptime(df[:10], "%Y-%m-%d")
+            q = q.filter(CleanData.occur_time >= start)
+        except ValueError:
+            pass
+    if dt:
+        try:
+            end = datetime.strptime(dt[:10], "%Y-%m-%d") + timedelta(days=1)
+            q = q.filter(CleanData.occur_time < end)
+        except ValueError:
+            pass
+    if unit and unit not in ("all", "*"):
+        prefix = f"{unit}:"
+        q = q.filter(CleanData.tags.startswith(prefix))
+    metric = (request.args.get("metric") or request.args.get("key") or "").strip()
+    if metric and metric not in ("all", "*"):
+        suffix = f":{metric}"
+        q = q.filter(CleanData.tags.endswith(suffix))
+
+    q = q.order_by(CleanData.occur_time.desc().nullslast(), CleanData.id.desc())
     total = q.count()
     items = q.offset((page - 1) * size).limit(size).all()
     return jsonify({"code": 0, "data": {"total": total, "items": [r.to_dict() for r in items]}})
@@ -398,12 +456,13 @@ def list_clean():
 
 @bp.route("/clean/by-day", methods=["GET"])
 def list_clean_by_day():
-    """按 occur_time（无 occur_time 则取 created_at）日期聚合 CleanData，每天 1 个分组。
+    """按数据对应日期（occur_time）聚合；无 occur_time 时不并入采集日，以免和采集时间混在一起。
 
     每条 item 额外带：
       - endpoint_source   : 通过名字回查 endpoint.source_label
       - endpoint_category : endpoint.category_label
-    分组维度：endpoints / endpoint_sources / endpoint_categories / categories（CleanData.category）。
+      - collect_time / created_at : 采集入库时间
+      - data_time / occur_time    : 数据对应时间
     """
     days_raw = request.args.get("days")
     q = CleanData.query.order_by(
@@ -422,10 +481,11 @@ def list_clean_by_day():
 
     groups: dict = {}
     for r in rows:
-        ts = r.occur_time or r.created_at
+        ts = r.occur_time
         if not ts:
-            continue
-        k = ts.strftime("%Y-%m-%d")
+            k = "未知"
+        else:
+            k = ts.strftime("%Y-%m-%d")
         d = r.to_dict()
         # 手填的 endpoint_source / endpoint_category 优先；为空则按 source 反查 endpoint
         if not d.get("endpoint_source") or not d.get("endpoint_category"):
@@ -477,7 +537,7 @@ def create_clean():
             title=(tags or "手工新增")[:255],
             content=content,
             metric_value=_coerce_metric(data.get("metric_value", content)),
-            occur_time=utc_now_second(),
+            occur_time=v.get("occur_time") or default_data_occur_time(),
             tags=tags,
             endpoint_source=v.get("endpoint_source"),
             endpoint_category=v.get("endpoint_category"),
@@ -515,7 +575,12 @@ def delete_clean(cid: int):
 
 @bp.route("/clean/by-day/<date>", methods=["DELETE"])
 def delete_clean_by_day(date: str):
-    """按日期（YYYY-MM-DD）删除所有 occur_time 在该天的 CleanData 行。"""
+    """按日期（YYYY-MM-DD）删除该数据对应日的 CleanData；date=未知 则删 occur_time 为空的行。"""
+    if date == "未知":
+        n = CleanData.query.filter(CleanData.occur_time.is_(None)).delete(synchronize_session=False)
+        db.session.commit()
+        log_op("数据采集", "按天清除已入库", f"未知数据日期 共 {n} 条")
+        return jsonify({"code": 0, "msg": f"已删除 {n} 条", "data": {"deleted": n, "date": date}})
     try:
         day = datetime.strptime(date, "%Y-%m-%d").date()
     except ValueError:
@@ -552,6 +617,8 @@ def update_clean(cid: int):
             rec.endpoint_source = v["endpoint_source"]
         if "endpoint_category" in v:
             rec.endpoint_category = v["endpoint_category"]
+        if "occur_time" in v:
+            rec.occur_time = v["occur_time"]
         db.session.commit()
         return jsonify({"code": 0, "msg": "已更新", "data": rec.to_dict()})
     except (ValueError, ValidationError) as e:
@@ -596,6 +663,7 @@ def create_tagged():
             value_path=(data.get("value_path") or "")[:512] or None,
             source_excerpt=(data.get("source_excerpt") or "")[:16000] or None,
             status="pending",
+            occur_time=v.get("occur_time") or _occur_from_excerpt(data.get("source_excerpt")),
         )
         if not rec.value_path and rec.source_excerpt:
             try:
@@ -644,14 +712,10 @@ def _coerce_metric(v):
             return None
 
 
-def _upsert_clean_for_tagged(rec: CollectTaggedValue, now):
-    """以 (occur_time 当天, tags) 为唯一键 upsert 到 CleanData。
-
-    - 已存在同日同标签 → 覆盖 source / content / category / occur_time
-    - 不存在 → 新增
-    返回 (CleanData 实例, 是否覆盖)。
-    """
-    day_start = datetime.combine(now.date(), datetime.min.time())
+def _upsert_clean_for_tagged(rec: CollectTaggedValue, collected_at):
+    """以（数据对应日 + 标签）为唯一键 upsert。采集时间写入 created_at，不覆盖业务时间。"""
+    data_time = rec.occur_time or _occur_from_excerpt(rec.source_excerpt) or default_data_occur_time()
+    day_start = datetime.combine(data_time.date(), datetime.min.time())
     day_end = day_start + timedelta(days=1)
     tag_key = (rec.tag or "")[:255]
     src = (rec.endpoint_name or (f"endpoint#{rec.endpoint_id}" if rec.endpoint_id else "远程采集"))[:64]
@@ -673,7 +737,8 @@ def _upsert_clean_for_tagged(rec: CollectTaggedValue, now):
         cd.title = tag_key
         cd.content = rec.value
         cd.metric_value = metric
-        cd.occur_time = now
+        cd.occur_time = data_time
+        cd.created_at = collected_at
         return cd, True
 
     cd = CleanData(
@@ -682,9 +747,9 @@ def _upsert_clean_for_tagged(rec: CollectTaggedValue, now):
         title=tag_key,
         content=rec.value,
         metric_value=metric,
-        occur_time=now,
+        occur_time=data_time,
         tags=tag_key,
-        created_at=now,
+        created_at=collected_at,
     )
     db.session.add(cd)
     return cd, False
@@ -792,3 +857,151 @@ def clear_tagged():
     db.session.commit()
     log_op("数据采集", "清空标签暂存", f"删除 {n} 条")
     return jsonify({"code": 0, "msg": "已清空", "data": {"deleted": n}})
+
+
+def _optional_base_url(val) -> str:
+    s = (val if val is not None else "").strip()
+    if not s:
+        return ""
+    return require_url(s)
+
+
+def _next_org_code() -> str:
+    used = {str(u.code or "") for u in OrgUnit.query.all()}
+    n = 1
+    while True:
+        code = f"u{n}"
+        if code not in used:
+            return code
+        n += 1
+
+
+def _apply_org_unit_fields(u, data, *, creating: bool):
+    from services.metric_catalog import DEFAULT_ORG_UNIT_REMARK
+    now = utc_now_second()
+    if creating or "name" in data:
+        name = require_str(data.get("name"), "单位", min_len=1, max_len=L_ORG_NAME)
+        u.name = to_db_text(name)[:L_ORG_NAME]
+    if creating or "base_url" in data:
+        u.base_url = _optional_base_url(data.get("base_url"))
+    if creating or "remark" in data:
+        remark = optional_str(data.get("remark"), "备注", max_len=L_ORG_REMARK)
+        u.remark = to_db_text(remark or DEFAULT_ORG_UNIT_REMARK)[:L_ORG_REMARK]
+    u.updated_at = now
+    return u
+
+
+@bp.route("/org-units", methods=["GET"])
+def list_org_units():
+    rows = OrgUnit.query.order_by(OrgUnit.sort_order.asc(), OrgUnit.id.asc()).all()
+    return jsonify({"code": 0, "data": [u.to_dict() for u in rows]})
+
+
+@bp.route("/org-units", methods=["POST"])
+def create_org_unit():
+    data = request.get_json(silent=True) or {}
+    try:
+        payload = dict(data)
+        if not str(payload.get("name") or "").strip():
+            payload["name"] = "新单位"
+        max_sort = db.session.query(func.max(OrgUnit.sort_order)).scalar() or 0
+        now = utc_now_second()
+        u = OrgUnit(
+            code=_next_org_code(),
+            sort_order=int(max_sort) + 1,
+            created_at=now,
+        )
+        _apply_org_unit_fields(u, payload, creating=True)
+        db.session.add(u)
+        db.session.commit()
+        log_op("数据采集", "新增战区接口", f"{u.name} id={u.id}")
+        return jsonify({"code": 0, "msg": "已增加", "data": u.to_dict()})
+    except (ValueError, ValidationError) as e:
+        db.session.rollback()
+        return jsonify({"code": 1, "msg": str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"code": 1, "msg": str(e)}), 500
+
+
+@bp.route("/org-units/<int:uid>", methods=["PUT"])
+def update_org_unit(uid: int):
+    u = OrgUnit.query.get(uid)
+    if not u:
+        return jsonify({"code": 1, "msg": "单位不存在"}), 404
+    data = request.get_json(silent=True) or {}
+    try:
+        _apply_org_unit_fields(u, data, creating=False)
+        db.session.commit()
+        log_op("数据采集", "更新战区接口", f"{u.name} id={u.id}")
+        return jsonify({"code": 0, "msg": "已保存", "data": u.to_dict()})
+    except (ValueError, ValidationError) as e:
+        db.session.rollback()
+        return jsonify({"code": 1, "msg": str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"code": 1, "msg": str(e)}), 500
+
+
+@bp.route("/org-units/<int:uid>", methods=["DELETE"])
+def delete_org_unit(uid: int):
+    u = OrgUnit.query.get(uid)
+    if not u:
+        return jsonify({"code": 1, "msg": "单位不存在"}), 404
+    try:
+        code = u.code or ""
+        name = u.name or ""
+        if code:
+            CleanData.query.filter(CleanData.tags.like(f"{code}:%")).delete(synchronize_session=False)
+        db.session.delete(u)
+        db.session.commit()
+        log_op("数据采集", "删除战区接口", f"{name} id={uid}")
+        return jsonify({"code": 0, "msg": "已删除"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"code": 1, "msg": str(e)}), 500
+
+
+@bp.route("/metric-sources", methods=["GET"])
+def list_metric_sources():
+    rows = MetricSource.query.order_by(MetricSource.sort_order.asc(), MetricSource.id.asc()).all()
+    return jsonify({"code": 0, "data": [s.to_dict() for s in rows]})
+
+
+@bp.route("/org-units/fetch", methods=["POST"])
+def fetch_org_unit_metrics():
+    """按已配置基地 URL 拉取全部共享指标并入库 CleanData。"""
+    try:
+        from services.unit_metric_service import fetch_all_unit_metrics
+
+        body = request.get_json(silent=True) or {}
+        result = fetch_all_unit_metrics(
+            date_from=body.get("date_from"),
+            date_to=body.get("date_to"),
+            occur_at=body.get("occur_time"),
+        )
+        log_op(
+            "数据采集",
+            "战区指标演示入库",
+            f"入库 {result.get('stored', 0)} 条（覆盖 {result.get('updated', 0)}）",
+        )
+        return jsonify({"code": 0, "msg": "拉取完成", "data": result})
+    except ValidationError as e:
+        return jsonify({"code": 1, "msg": str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        log_op("数据采集", "战区指标拉取", str(e), success=False)
+        return jsonify({"code": 1, "msg": f"拉取失败: {e}"}), 500
+
+
+@bp.route("/org-units/metrics", methods=["GET"])
+def list_org_unit_metrics():
+    try:
+        days = int(request.args.get("days") or 7)
+    except (TypeError, ValueError):
+        days = 7
+    from services.unit_metric_service import latest_metrics_map, metrics_for_llm
+
+    mmap = latest_metrics_map(days=days)
+    return jsonify({"code": 0, "data": {"by_code": mmap, "by_name": metrics_for_llm(mmap)}})
+

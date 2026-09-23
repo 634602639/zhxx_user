@@ -69,9 +69,9 @@ TABLES = {
             id INT IDENTITY(1,1) PRIMARY KEY,
             endpoint_id INT, endpoint_name {V(128)}, tag {V(64)}, value CLOB,
             value_path {V(512)}, source_excerpt CLOB, status {V(16)},
-            created_at TIMESTAMP, stored_at TIMESTAMP)""",
+            created_at TIMESTAMP, stored_at TIMESTAMP, occur_time TIMESTAMP)""",
         "cols": ["id", "endpoint_id", "endpoint_name", "tag", "value", "value_path",
-                 "source_excerpt", "status", "created_at", "stored_at"],
+                 "source_excerpt", "status", "created_at", "stored_at", "occur_time"],
         "blob": set(),
     },
     "report_template": {
@@ -117,6 +117,26 @@ TABLES = {
             id INT IDENTITY(1,1) PRIMARY KEY,
             total INT, daily_avg INT, peak INT, source_count INT, created_at TIMESTAMP)""",
         "cols": ["id", "total", "daily_avg", "peak", "source_count", "created_at"],
+        "blob": set(),
+    },
+    "org_unit": {
+        "ddl": f"""CREATE TABLE {DM_SCHEMA}.ORG_UNIT (
+            id INT IDENTITY(1,1) PRIMARY KEY,
+            code {V(32)} NOT NULL UNIQUE, name {V(64)} NOT NULL,
+            base_url {V(2048)}, aliases_json CLOB, sort_order INT,
+            created_at TIMESTAMP, updated_at TIMESTAMP)""",
+        "cols": ["id", "code", "name", "base_url", "aliases_json", "sort_order",
+                 "created_at", "updated_at"],
+        "blob": set(),
+    },
+    "metric_source": {
+        "ddl": f"""CREATE TABLE {DM_SCHEMA}.METRIC_SOURCE (
+            id INT IDENTITY(1,1) PRIMARY KEY,
+            code {V(64)} NOT NULL UNIQUE, name {V(128)} NOT NULL,
+            method {V(16)}, path {V(512)}, extract_rules_json CLOB, sort_order INT,
+            created_at TIMESTAMP, updated_at TIMESTAMP)""",
+        "cols": ["id", "code", "name", "method", "path", "extract_rules_json",
+                 "sort_order", "created_at", "updated_at"],
         "blob": set(),
     },
 }

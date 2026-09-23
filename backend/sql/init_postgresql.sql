@@ -37,9 +37,9 @@ COMMENT ON COLUMN clean_data.category IS '业务类别';
 COMMENT ON COLUMN clean_data.title IS '标题';
 COMMENT ON COLUMN clean_data.content IS '正文内容';
 COMMENT ON COLUMN clean_data.metric_value IS '标准化后的数值度量';
-COMMENT ON COLUMN clean_data.occur_time IS '事件发生时间（已解析）';
+COMMENT ON COLUMN clean_data.occur_time IS '数据对应时间（业务真实产生时间，填入报告用此时间）';
 COMMENT ON COLUMN clean_data.tags IS '标签（可多值语义，应用中常以分隔符存储）';
-COMMENT ON COLUMN clean_data.created_at IS '记录写入数据库的时间';
+COMMENT ON COLUMN clean_data.created_at IS '采集时间（写入本系统的时间）';
 
 -- ---------- report_template ----------
 CREATE TABLE IF NOT EXISTS report_template (
@@ -176,7 +176,8 @@ CREATE TABLE IF NOT EXISTS collect_tagged_value (
     source_excerpt TEXT,
     status         VARCHAR(16) DEFAULT 'pending',
     created_at     TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    stored_at      TIMESTAMP WITHOUT TIME ZONE
+    stored_at      TIMESTAMP WITHOUT TIME ZONE,
+    occur_time     TIMESTAMP WITHOUT TIME ZONE
 );
 
 COMMENT ON TABLE collect_tagged_value IS '采集预览中手工截取的标签值（暂存区，后续可入库 CleanData）';
@@ -190,6 +191,7 @@ COMMENT ON COLUMN collect_tagged_value.source_excerpt IS '选中内容来源（�
 COMMENT ON COLUMN collect_tagged_value.status IS '状态：pending/stored';
 COMMENT ON COLUMN collect_tagged_value.created_at IS '暂存时间';
 COMMENT ON COLUMN collect_tagged_value.stored_at IS '入库时间';
+COMMENT ON COLUMN collect_tagged_value.occur_time IS '数据对应时间（业务产生时间，写入报告；不是采集时间）';
 
 -- ---------- report_compose_draft ----------
 CREATE TABLE IF NOT EXISTS report_compose_draft (
@@ -199,6 +201,7 @@ CREATE TABLE IF NOT EXISTS report_compose_draft (
     title          VARCHAR(255) NOT NULL,
     content        TEXT,
     status         VARCHAR(32) DEFAULT 'pending_polish',
+    status_detail  VARCHAR(512),
     bindings_json  TEXT,
     file_blob      BYTEA,
     file_mime      VARCHAR(128),
@@ -210,10 +213,38 @@ CREATE TABLE IF NOT EXISTS report_compose_draft (
 COMMENT ON TABLE report_compose_draft IS '模板 X 占位替换后的合成草稿（供纠错润色；非正式 duty_report）';
 COMMENT ON COLUMN report_compose_draft.template_id IS '来源模板 report_template.id';
 COMMENT ON COLUMN report_compose_draft.template_name IS '保存时模板名称快照';
-COMMENT ON COLUMN report_compose_draft.status IS 'pending_polish=待纠错润色；后续可扩展 polished / archived';
+COMMENT ON COLUMN report_compose_draft.status IS 'pending_polish=待润色；polishing=正在润色；polished=润色完成；polish_error=润色失败';
+COMMENT ON COLUMN report_compose_draft.status_detail IS '润色进度或失败原因（列表展示）';
 COMMENT ON COLUMN report_compose_draft.bindings_json IS '占位映射快照 JSON';
 COMMENT ON COLUMN report_compose_draft.file_blob IS '替换后的 Office 文件字节（与下载预览一致）';
 COMMENT ON COLUMN report_compose_draft.file_mime IS 'file_blob 的 MIME 类型';
 COMMENT ON COLUMN report_compose_draft.file_name IS '建议下载文件名';
+
+-- ---------- org_unit / metric_source ----------
+CREATE TABLE IF NOT EXISTS org_unit (
+    id            SERIAL PRIMARY KEY,
+    code          VARCHAR(32)  NOT NULL UNIQUE,
+    name          VARCHAR(64)  NOT NULL,
+    base_url      VARCHAR(2048),
+    aliases_json  TEXT,
+    remark        VARCHAR(64),
+    sort_order    INTEGER DEFAULT 0,
+    created_at    TIMESTAMP WITHOUT TIME ZONE,
+    updated_at    TIMESTAMP WITHOUT TIME ZONE
+);
+COMMENT ON TABLE org_unit IS '空军本级及五大战区空军：各自配置基地 URL';
+
+CREATE TABLE IF NOT EXISTS metric_source (
+    id                  SERIAL PRIMARY KEY,
+    code                VARCHAR(64)  NOT NULL UNIQUE,
+    name                VARCHAR(128) NOT NULL,
+    method              VARCHAR(16)  DEFAULT 'GET',
+    path                VARCHAR(512) NOT NULL,
+    extract_rules_json  TEXT,
+    sort_order          INTEGER DEFAULT 0,
+    created_at          TIMESTAMP WITHOUT TIME ZONE,
+    updated_at          TIMESTAMP WITHOUT TIME ZONE
+);
+COMMENT ON TABLE metric_source IS '共享指标接口路径与 JSON 抽取规则';
 
 COMMIT;

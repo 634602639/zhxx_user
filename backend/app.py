@@ -163,6 +163,29 @@ def _patch_report_compose_draft_file_columns(app):
         app.logger.warning("report_compose_draft 列补丁未应用: %s", ex)
 
 
+def _ensure_compose_draft_status_detail(app):
+    """合成草稿增加 status_detail，用于列表展示正在润色 / 失败原因。"""
+    from sqlalchemy import text
+
+    is_dm = db.engine.dialect.name == "dm"
+    try:
+        with db.engine.connect() as conn:
+            conn.execute(text("SELECT status_detail FROM report_compose_draft WHERE 1=0"))
+        return
+    except Exception:
+        pass
+    try:
+        with db.engine.begin() as conn:
+            ddl = (
+                "ALTER TABLE report_compose_draft ADD status_detail VARCHAR(512)"
+                if is_dm
+                else "ALTER TABLE report_compose_draft ADD COLUMN IF NOT EXISTS status_detail VARCHAR(512)"
+            )
+            conn.execute(text(ddl))
+    except Exception as ex:
+        app.logger.info("report_compose_draft.status_detail 列暂未补: %s", ex)
+
+
 def _ensure_user_store(app):
     """确保 sys_user 表存在并有默认管理员 admin/123456。
 
@@ -231,7 +254,29 @@ def _ensure_user_role_column(app):
                    else "ALTER TABLE sys_user ADD COLUMN IF NOT EXISTS role_id INTEGER")
             conn.execute(text(ddl))
     except Exception as ex:
-        app.logger.info("sys_user.role_id 列暂未补（表可能尚未创建，建表时会带上）: %s", ex)
+        app.logger.warning("sys_user.role_id 列暂未补（表可能尚未创建，建表时会带上）: %s", ex)
+
+
+def _ensure_tagged_occur_time(app):
+    """collect_tagged_value 增加 occur_time（数据对应时间），与暂存时间 created_at 分开。"""
+    from sqlalchemy import text
+    is_dm = db.engine.dialect.name == "dm"
+    try:
+        with db.engine.connect() as conn:
+            conn.execute(text("SELECT occur_time FROM collect_tagged_value WHERE 1=0"))
+        return
+    except Exception:
+        pass
+    try:
+        with db.engine.begin() as conn:
+            ddl = (
+                "ALTER TABLE collect_tagged_value ADD occur_time TIMESTAMP"
+                if is_dm
+                else "ALTER TABLE collect_tagged_value ADD COLUMN IF NOT EXISTS occur_time TIMESTAMP"
+            )
+            conn.execute(text(ddl))
+    except Exception as ex:
+        app.logger.info("collect_tagged_value.occur_time 列暂未补: %s", ex)
 
 
 def _ensure_role_store(app):
@@ -322,6 +367,133 @@ def _ensure_role_store(app):
         app.logger.warning("admin 绑定超级管理员角色失败: %s", ex)
 
 
+def _ensure_org_metric_store(app):
+    """确保 org_unit / metric_source 存在，并种子 6 单位与 15所指标路径。"""
+    import json as _json
+    from sqlalchemy import text
+    from models import OrgUnit, MetricSource, utc_now_second, to_db_text
+    from services.metric_catalog import DEFAULT_ORG_UNITS, DEFAULT_METRIC_SOURCES, DEFAULT_ORG_UNIT_REMARK
+    from validators import L_ORG_REMARK
+
+    is_dm = db.engine.dialect.name == "dm"
+    now = utc_now_second()
+    default_remark = to_db_text(DEFAULT_ORG_UNIT_REMARK)[:L_ORG_REMARK]
+
+    try:
+        with db.engine.connect() as conn:
+            conn.execute(text("SELECT remark FROM org_unit WHERE 1=0"))
+    except Exception:
+        try:
+            with db.engine.begin() as conn:
+                ddl = (
+                    "ALTER TABLE org_unit ADD remark VARCHAR(192)"
+                    if is_dm
+                    else "ALTER TABLE org_unit ADD COLUMN IF NOT EXISTS remark VARCHAR(64)"
+                )
+                conn.execute(text(ddl))
+        except Exception as ex:
+            app.logger.info("org_unit.remark 列暂未补: %s", ex)
+
+    def _table_ok(model):
+        try:
+            model.query.first()
+            return True
+        except Exception:
+            db.session.rollback()
+            return False
+
+    if not _table_ok(OrgUnit):
+        try:
+            if is_dm:
+                with db.engine.begin() as conn:
+                    conn.execute(text(
+                        "CREATE TABLE ORG_UNIT ("
+                        "id INT IDENTITY(1,1) PRIMARY KEY, "
+                        "code VARCHAR(96) NOT NULL UNIQUE, "
+                        "name VARCHAR(192) NOT NULL, "
+                        "base_url VARCHAR(6144), "
+                        "aliases_json CLOB, "
+                        "remark VARCHAR(192), "
+                        "sort_order INT DEFAULT 0, "
+                        "created_at TIMESTAMP, updated_at TIMESTAMP)"
+                    ))
+            else:
+                db.create_all()
+        except Exception as ex:
+            app.logger.warning("创建 org_unit 表失败: %s", ex)
+
+    if not _table_ok(MetricSource):
+        try:
+            if is_dm:
+                with db.engine.begin() as conn:
+                    conn.execute(text(
+                        "CREATE TABLE METRIC_SOURCE ("
+                        "id INT IDENTITY(1,1) PRIMARY KEY, "
+                        "code VARCHAR(192) NOT NULL UNIQUE, "
+                        "name VARCHAR(384) NOT NULL, "
+                        "method VARCHAR(48) DEFAULT 'GET', "
+                        "path VARCHAR(1536) NOT NULL, "
+                        "extract_rules_json CLOB, "
+                        "sort_order INT DEFAULT 0, "
+                        "created_at TIMESTAMP, updated_at TIMESTAMP)"
+                    ))
+            else:
+                db.create_all()
+        except Exception as ex:
+            app.logger.warning("创建 metric_source 表失败: %s", ex)
+
+    try:
+        existing = OrgUnit.query.all()
+        if not existing:
+            for spec in DEFAULT_ORG_UNITS:
+                db.session.add(OrgUnit(
+                    code=spec["code"],
+                    name=spec["name"],
+                    base_url="",
+                    remark=default_remark,
+                    aliases_json=_json.dumps(spec.get("aliases") or [], ensure_ascii=False),
+                    sort_order=spec.get("sort_order") or 0,
+                    created_at=now,
+                    updated_at=now,
+                ))
+        for u in OrgUnit.query.all():
+            if not (u.remark or "").strip():
+                u.remark = default_remark
+                u.updated_at = now
+        db.session.commit()
+    except Exception as ex:
+        db.session.rollback()
+        app.logger.warning("种子 org_unit 失败: %s", ex)
+
+    try:
+        existing_s = {s.code: s for s in MetricSource.query.all()}
+        for spec in DEFAULT_METRIC_SOURCES:
+            rules = _json.dumps(spec.get("rules") or [], ensure_ascii=False)
+            row = existing_s.get(spec["code"])
+            if row:
+                row.name = spec["name"]
+                row.method = spec.get("method") or "GET"
+                row.path = spec["path"]
+                row.extract_rules_json = rules
+                row.sort_order = spec.get("sort_order") or 0
+                row.updated_at = now
+            else:
+                db.session.add(MetricSource(
+                    code=spec["code"],
+                    name=spec["name"],
+                    method=spec.get("method") or "GET",
+                    path=spec["path"],
+                    extract_rules_json=rules,
+                    sort_order=spec.get("sort_order") or 0,
+                    created_at=now,
+                    updated_at=now,
+                ))
+        db.session.commit()
+    except Exception as ex:
+        db.session.rollback()
+        app.logger.warning("种子 metric_source 失败: %s", ex)
+
+
 def create_app():
     if getattr(sys, "frozen", False):
         # PyInstaller 冻结：前端从打包资源目录(_MEIPASS)读，可写数据放 exe 同级目录
@@ -361,10 +533,13 @@ def create_app():
 
         # RBAC：先给已有 sys_user 补 role_id 列（必须早于任何 SysUser 的 ORM 查询）
         _ensure_user_role_column(app)
+        _ensure_tagged_occur_time(app)
+        _ensure_compose_draft_status_detail(app)
         # 用户表与默认管理员（两种后端都需要；达梦下手动建表）
         _ensure_user_store(app)
         # 角色表 + 内置超级管理员角色，并把 admin 挂上去
         _ensure_role_store(app)
+        _ensure_org_metric_store(app)
 
     # 注册蓝图
     from routes.data_collection import bp as bp_dc

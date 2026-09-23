@@ -49,7 +49,10 @@ window.PAGE_HOOKS = {
   collect: () => DataCollect.refresh(),
   analysis: () => Analysis.refresh(),
   generate: () => Generate.init(),
-  manage: () => Manage.search(),
+  manage: () => {
+    Manage.ensureFilterDates();
+    Manage.search();
+  },
   logs: () => Logs.refresh(),
   users: () => Users.refresh(),
 };
@@ -152,7 +155,79 @@ window.addEventListener("unhandledrejection", (ev) => {
   console.error("[UnhandledRejection]", e);
 });
 
+function helpTip(text) {
+  const raw = String(text || "");
+  const esc = raw
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+  return `<span class="help-tip" tabindex="0" data-tip="${esc}" aria-label="${esc}"></span>`;
+}
+window.helpTip = helpTip;
+
+const HelpTip = {
+  el: null,
+  _on: null,
+  init() {
+    if (this.el) return;
+    this.el = document.createElement("div");
+    this.el.id = "help-tip-float";
+    this.el.className = "help-tip-float hidden";
+    this.el.setAttribute("role", "tooltip");
+    document.body.appendChild(this.el);
+    const showFrom = (e) => {
+      const t = e.target && e.target.closest ? e.target.closest(".help-tip") : null;
+      if (t) this.show(t);
+    };
+    const hideFrom = (e) => {
+      const t = e.target && e.target.closest ? e.target.closest(".help-tip") : null;
+      if (!t) return;
+      const next = e.relatedTarget;
+      if (next && t.contains(next)) return;
+      this.hide();
+    };
+    document.addEventListener("mouseover", showFrom);
+    document.addEventListener("mouseout", hideFrom);
+    document.addEventListener("focusin", showFrom);
+    document.addEventListener("focusout", hideFrom);
+    document.addEventListener("click", (e) => {
+      const t = e.target && e.target.closest ? e.target.closest(".help-tip") : null;
+      if (!t) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.show(t);
+    }, true);
+    window.addEventListener("scroll", () => this.hide(), true);
+    window.addEventListener("resize", () => this.hide());
+  },
+  show(t) {
+    const text = (t.getAttribute("data-tip") || t.getAttribute("aria-label") || "").trim();
+    if (!text || !this.el) return;
+    this._on = t;
+    this.el.textContent = text;
+    this.el.classList.remove("hidden");
+    const r = t.getBoundingClientRect();
+    const w = this.el.offsetWidth;
+    const h = this.el.offsetHeight;
+    const gap = 8;
+    let top = r.top - h - gap;
+    if (top < 8) top = r.bottom + gap;
+    let left = r.left + r.width / 2 - w / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+    this.el.style.top = `${Math.round(top)}px`;
+    this.el.style.left = `${Math.round(left)}px`;
+  },
+  hide() {
+    if (!this.el) return;
+    this._on = null;
+    this.el.classList.add("hidden");
+  },
+};
+window.HelpTip = HelpTip;
+
 window.addEventListener("load", () => {
+  HelpTip.init();
   // 先校验登录：已登录则进入并加载首页数据，否则显示登录页
   if (window.Auth) window.Auth.boot();
   else if (window.PAGE_HOOKS && window.PAGE_HOOKS.collect) window.PAGE_HOOKS.collect();

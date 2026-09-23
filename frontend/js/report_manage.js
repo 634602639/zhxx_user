@@ -1,6 +1,20 @@
 const Manage = {
   _listPageSize: 20,
 
+  _todayYmd() {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  },
+
+  ensureFilterDates() {
+    const today = this._todayYmd();
+    const df = document.getElementById("mng-date-from");
+    const dt = document.getElementById("mng-date-to");
+    if (df && !df.value) df.value = today;
+    if (dt && !dt.value) dt.value = today;
+  },
+
   _queryString() {
     const params = new URLSearchParams();
     params.set("page", "1");
@@ -167,7 +181,7 @@ const Manage = {
     document.getElementById("f-id").value = r.id || "";
     document.getElementById("f-title").value = r.title || "";
     document.getElementById("f-type").value = r.report_type || "word";
-    document.getElementById("f-date").value = r.report_date || "";
+    document.getElementById("f-date").value = r.report_date || this._todayYmd();
     document.getElementById("f-content").value = r.content || "";
   },
 

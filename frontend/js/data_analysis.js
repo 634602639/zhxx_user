@@ -1,78 +1,273 @@
-// ========== 值勤数据分析（design 风格） ==========
+// ========== 值勤数据分析（六单位运行态势） ==========
 const Analysis = {
   _ec: {},
-  /** 时间趋势与相关 KPI 固定统计最近 N 个自然日（含今日） */
-  RANGE_DAYS: 7,
-  /** 最近一次刷新得到的 4 个 KPI，供「数据存储」按钮入库 */
-  _kpi: null,
+  _data: null,
 
   async refresh() {
     try {
-      // 强制重播一次入场动画：点"刷新"时即使数据没变也要有视觉反馈
-      Object.values(this._ec || {}).forEach(ec => { try { ec && ec.clear(); } catch (_) {} });
-      const r = (await API.get("/api/analysis/multi-dim")).data || {};
-      const span = this.RANGE_DAYS;
-
-      // 总计角标
-      const totalEl = document.getElementById("ana-total");
-      if (totalEl) totalEl.textContent = `共分析 ${(r.total || 0).toLocaleString()} 条数据`;
-
-      // 时间序列对齐到指定窗口
-      const series = this._zeroFill(r.by_date || [], span);
-
-      // KPI
-      this._setKpi("ana-kpi-total", r.total || 0, series.map(d => d.value), 0);
-      const avg = series.length ? Math.round(series.reduce((s, d) => s + d.value, 0) / series.length) : 0;
-      this._setKpi("ana-kpi-avg", avg, series.map(d => d.value), 1);
-      const peak = series.reduce((m, d) => Math.max(m, d.value), 0);
-      this._setKpi("ana-kpi-peak", peak, series.map(d => d.value), 3);
-      const srcN = (r.by_source || []).length;
-      this._setKpi("ana-kpi-src", srcN, this._fakeSpark(srcN, series.length), 2);
-
-      // 缓存当前 KPI，供「数据存储」按钮入库
-      this._kpi = { total: r.total || 0, daily_avg: avg, peak, source_count: srcN };
-
-      // 图表
-      this._renderPie("ana-source", r.by_source || []);
-      this._renderBar("ana-cat", r.by_category || [], { horizontal: true, paletteIdx: 1 });
-      this._renderTrend("ana-date", series);
-      this._renderBar("ana-value", r.value_by_category || [], { horizontal: false, paletteIdx: 3 });
-      this._renderBar("ana-source-h", r.by_source || [], { horizontal: true, paletteIdx: 2 });
+      this._ensureRange();
+      const from = (document.getElementById("ana-date-from")?.value || "").trim();
+      const to = (document.getElementById("ana-date-to")?.value || "").trim();
+      if (!from || !to) {
+        toast("请填写时间范围", "error");
+        return;
+      }
+      if (from > to) {
+        toast("结束时间不能早于起始时间", "error");
+        return;
+      }
+      const qs = new URLSearchParams({ date_from: from, date_to: to });
+      const r = (await API.get(`/api/analysis/theater?${qs}`)).data || {};
+      this._data = r;
+      this._fillUnitOptions(r.units || []);
+      const tag = document.getElementById("ana-trend-tag");
+      if (tag) tag.textContent = r.from_demo ? "预置指标" : "数据对应时间";
+      this._paint();
     } catch (e) {
       toast(e.message, "error");
     }
   },
 
-  /** 数据存储：确认后把当前 4 个 KPI（样本总量/日均采集/峰值/覆盖来源）存入数据库 */
-  async save() {
-    if (!this._kpi) {
-      toast("请先点「刷新分析」生成数据", "error");
-      return;
-    }
-    if (!confirm("确认存储数据？")) return;
-    try {
-      await API.post("/api/analysis/snapshot", this._kpi);
-      toast("已存储", "success");
-    } catch (e) {
-      toast(e.message, "error");
+  onFilterChange() {
+    if (!this._data) return;
+    this._paint();
+  },
+
+  _paint() {
+    Object.values(this._ec || {}).forEach((ec) => { try { ec && ec.clear(); } catch (_) {} });
+    const kpis = this._kpisForFilter();
+    this._setKpi("ana-kpi-rate", kpis.node_online_rate, 0);
+    this._setKpi("ana-kpi-eq", kpis.equipment_ok_rate, 1);
+    this._setKpi("ana-kpi-user", kpis.access_network_user, 3);
+    this._setKpi("ana-kpi-nodes", kpis.node_ratio, 2);
+
+    const kind = this._chartKind();
+    const dates = ((this._data || {}).daily || {}).dates || [];
+    const rateKeys = (this._data.rate_keys || []).length
+      ? this._data.rate_keys
+      : [
+        { key: "node_online_rate", label: "节点在线率" },
+        { key: "equipment_ok_rate", label: "设备完好率" },
+        { key: "js_resource_pct", label: "计算资源使用率" },
+        { key: "storage_resource_pct", label: "存储空间使用率" },
+      ];
+    const volKeys = (this._data.volume_keys || []).length
+      ? this._data.volume_keys
+      : [
+        { key: "access_network_user", label: "入网用户" },
+        { key: "data_service_volume", label: "数据服务量" },
+        { key: "doc_interaction", label: "文档交互量" },
+      ];
+
+    if (kind === "pie") {
+      this._renderPie("ana-rates", this._pieRates(rateKeys), { percent: true });
+      this._renderPie("ana-volumes", this._pieVolumes(volKeys), { percent: false });
+      this._renderPie("ana-trend", this._pieOnline(), { percent: false });
+    } else {
+      this._renderTime("ana-rates", dates, this._timeRates(rateKeys), { percent: true, kind });
+      this._renderTime("ana-volumes", dates, this._timeVolumes(volKeys), { percent: false, kind });
+      this._renderTime("ana-trend", dates, this._timeNodes(), { percent: false, kind });
     }
   },
 
-  // ---------- KPI / Spark ----------
-  _setKpi(id, value, sparkData, paletteIdx) {
+  _unit() {
+    return (document.getElementById("ana-unit")?.value || "all").trim() || "all";
+  },
+
+  _chartKind() {
+    const v = document.getElementById("ana-chart-type")?.value || "bar";
+    if (v === "line" || v === "pie") return v;
+    return "bar";
+  },
+
+  _fillUnitOptions(units) {
+    const sel = document.getElementById("ana-unit");
+    if (!sel) return;
+    const keep = sel.value || "all";
+    const opts = [`<option value="all">全部</option>`].concat(
+      (units || []).map((u) => `<option value="${String(u.code || "").replace(/"/g, "")}">${this._esc(u.name || u.short || u.code)}</option>`)
+    );
+    sel.innerHTML = opts.join("");
+    const ok = [...sel.options].some((o) => o.value === keep);
+    sel.value = ok ? keep : "all";
+  },
+
+  _esc(s) {
+    return String(s ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  },
+
+  _ensureRange() {
+    const fromEl = document.getElementById("ana-date-from");
+    const toEl = document.getElementById("ana-date-to");
+    if (!fromEl || !toEl) return;
+    const pad = (n) => String(n).padStart(2, "0");
+    const fmt = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    const to = new Date();
+    const from = new Date(to.getTime() - 7 * 24 * 3600 * 1000);
+    if (!fromEl.value) fromEl.value = fmt(from);
+    if (!toEl.value) toEl.value = fmt(to);
+  },
+
+  _dailySrc() {
+    const daily = (this._data || {}).daily || {};
+    const unit = this._unit();
+    if (unit === "all") return daily.all || {};
+    return (daily.by_unit || {})[unit] || {};
+  },
+
+  _timeRates(keys) {
+    const src = this._dailySrc();
+    return (keys || []).map((k) => ({
+      name: k.label || k.key,
+      values: (src[k.key] || []).map((v) => this._roundPct(v)),
+    }));
+  },
+
+  _timeVolumes(keys) {
+    const src = this._dailySrc();
+    return (keys || []).map((k) => ({ name: k.label || k.key, values: src[k.key] || [] }));
+  },
+
+  _timeOnline() {
+    const daily = (this._data || {}).daily || {};
+    const unit = this._unit();
+    if (unit !== "all") {
+      const src = (daily.by_unit || {})[unit] || {};
+      return [
+        { name: "在线节点", values: src.online_counts || [] },
+        { name: "节点总数", values: src.all_counts || [] },
+      ];
+    }
+    return (this._data.units || []).map((u) => ({
+      name: u.short || u.name || u.code,
+      values: ((daily.by_unit || {})[u.code] || {}).online_counts || [],
+    }));
+  },
+
+  _timeNodes() {
+    return this._timeOnline();
+  },
+
+  _latestNum(code, key) {
+    const row = ((this._data || {}).latest || {})[code] || {};
+    const v = row[key];
+    return v == null || v === "" ? null : Number(v);
+  },
+
+  _pieItems(pairs) {
+    return (pairs || [])
+      .map(([name, value]) => ({ name, value: value == null ? 0 : Number(value) }))
+      .filter((d) => Number.isFinite(d.value) && d.value > 0);
+  },
+
+  _aggLatest(key, mode) {
+    const units = (this._data || {}).units || [];
+    const vals = units.map((u) => this._latestNum(u.code, key));
+    const known = vals.filter((v) => v != null && Number.isFinite(v));
+    if (!known.length) return null;
+    if (mode === "sum") return known.reduce((s, v) => s + v, 0);
+    if (mode === "weighted") {
+      const weights = units.map((u) => this._latestNum(u.code, "all_counts"));
+      let num = 0, den = 0;
+      units.forEach((u, i) => {
+        if (vals[i] == null) return;
+        const w = weights[i] != null && weights[i] > 0 ? weights[i] : 1;
+        num += vals[i] * w;
+        den += w;
+      });
+      return den ? num / den : null;
+    }
+    return known.reduce((s, v) => s + v, 0) / known.length;
+  },
+
+  _pieRates(keys) {
+    const unit = this._unit();
+    return this._pieItems((keys || []).map((k) => {
+      const v = unit === "all"
+        ? this._aggLatest(k.key, k.key === "node_online_rate" ? "weighted" : "mean")
+        : this._latestNum(unit, k.key);
+      return [k.label || k.key, this._roundPct(v)];
+    }));
+  },
+
+  _pieVolumes(keys) {
+    const unit = this._unit();
+    return this._pieItems((keys || []).map((k) => {
+      const v = unit === "all" ? this._aggLatest(k.key, "sum") : this._latestNum(unit, k.key);
+      return [k.label || k.key, v];
+    }));
+  },
+
+  _pieOnline() {
+    const unit = this._unit();
+    const units = (this._data || {}).units || [];
+    if (unit === "all") {
+      return this._pieItems(units.map((u) => [u.short || u.name, this._latestNum(u.code, "online_counts")]));
+    }
+    const online = this._latestNum(unit, "online_counts");
+    const all = this._latestNum(unit, "all_counts");
+    const off = (online != null && all != null) ? Math.max(0, all - online) : null;
+    return this._pieItems([["在线节点", online], ["离线节点", off]]);
+  },
+
+  _kpisForFilter() {
+    const unit = this._unit();
+    if (unit === "all") return (this._data || {}).kpis || {};
+    const L = ((this._data || {}).latest || {})[unit] || {};
+    const D = ((((this._data || {}).daily || {}).by_unit) || {})[unit] || {};
+    const online = L.online_counts;
+    const all = L.all_counts;
+    const ratio = (online == null && all == null)
+      ? "—"
+      : `${this._fmtInt(online)}/${this._fmtInt(all)}`;
+    return {
+      node_online_rate: { display: this._fmtPct(L.node_online_rate), spark: D.node_online_rate || [] },
+      equipment_ok_rate: { display: this._fmtPct(L.equipment_ok_rate), spark: D.equipment_ok_rate || [] },
+      access_network_user: { display: this._fmtInt(L.access_network_user), spark: D.access_network_user || [] },
+      node_ratio: { display: ratio, spark: D.online_counts || [] },
+    };
+  },
+
+  _fmtPct(v) {
+    if (v == null || v === "" || Number.isNaN(Number(v))) return "—";
+    return `${Number(v).toFixed(2)}%`;
+  },
+
+  _roundPct(v) {
+    if (v == null || v === "" || Number.isNaN(Number(v))) return null;
+    return Number(Number(v).toFixed(2));
+  },
+
+  _fmtInt(v) {
+    if (v == null || v === "" || Number.isNaN(Number(v))) return "—";
+    return String(Math.round(Number(v)));
+  },
+
+  _dateLabels(dates) {
+    return (dates || []).map((d) => {
+      const m = String(d).match(/(\d{4})-(\d{2})-(\d{2})/);
+      return m ? `${Number(m[2])}/${Number(m[3])}` : d;
+    });
+  },
+
+  _setKpi(id, kpi, paletteIdx) {
+    const info = kpi || {};
     const numEl = document.getElementById(id);
-    if (numEl) numEl.textContent = (value || 0).toLocaleString();
-    // 环比趋势（▲/▼ X% vs 上周期）已按需求屏蔽，不再显示。
-    const trendEl = document.getElementById(id + "-trend");
-    if (trendEl) {
-      trendEl.classList.remove("up", "down");
-      trendEl.textContent = "";
-    }
+    if (numEl) numEl.textContent = info.display || "—";
+    const unitEl = document.getElementById(id + "-unit");
+    if (unitEl) unitEl.textContent = "";
     const sparkHost = document.getElementById(id + "-spark");
-    if (sparkHost && sparkData && sparkData.length) {
+    const spark = Array.isArray(info.spark) ? info.spark.filter((v) => v != null) : [];
+    if (sparkHost && spark.length) {
       const palette = _palette();
       const color = palette[paletteIdx % palette.length] || _accentOklch(1);
-      this._renderSpark(sparkHost, sparkData, color);
+      this._renderSpark(sparkHost, info.spark, color);
+    } else if (sparkHost) {
+      const ec = this._ec[sparkHost.id];
+      if (ec) { try { ec.clear(); } catch (_) {} }
     }
   },
 
@@ -103,27 +298,256 @@ const Analysis = {
     });
   },
 
-  // ---------- Charts ----------
-  _renderPie(id, data) {
+  _emptyChart(ec, base, text) {
+    ec.setOption(Object.assign(_anim(), {
+      backgroundColor: "transparent",
+      title: {
+        text: text || "暂无数据",
+        left: "center", top: "center",
+        textStyle: { color: base.fgDim, fontSize: 12, fontWeight: 400 },
+      },
+      legend: { show: false },
+      xAxis: { show: false }, yAxis: { show: false },
+      series: [],
+    }), true);
+  },
+
+  _collectSeriesNums(list) {
+    const nums = [];
+    for (const s of list || []) {
+      for (const v of s.values || []) {
+        const n = Number(v);
+        if (Number.isFinite(n)) nums.push(n);
+      }
+    }
+    return nums;
+  },
+
+  /**
+   * 百分率若锁死 0～100，88% 与 94% 柱高几乎一样。
+   * 按本期数据收窄纵轴（略低于最小值），把日间差异拉开；不从 100 起，以免柱子被截没。
+   */
+  _yAxisRange(list, percent) {
+    const nums = this._collectSeriesNums(list);
+    if (!nums.length) {
+      return percent ? { min: 0, max: 100 } : { min: 0, max: null };
+    }
+    const dmin = Math.min.apply(null, nums);
+    const dmax = Math.max.apply(null, nums);
+    if (percent) {
+      const span = Math.max(6, dmax - dmin);
+      const pad = Math.max(1.5, span * 0.18);
+      let min = Math.floor((dmin - pad) / 5) * 5;
+      let max = Math.ceil((dmax + pad) / 5) * 5;
+      min = Math.max(0, min);
+      max = Math.min(100, Math.max(max, min + 5));
+      if (dmax >= 96) max = 100;
+      if (max - min < 5) min = Math.max(0, max - 5);
+      return { min, max };
+    }
+    const span = dmax - dmin;
+    const rel = dmax > 0 ? span / dmax : 1;
+    if (dmin <= 0 || rel >= 0.22) {
+      return { min: 0, max: null };
+    }
+    const pad = Math.max(span * 0.22, dmax * 0.04, 1);
+    let min = dmin - pad;
+    if (min < 0) min = 0;
+    const mag = Math.pow(10, Math.max(0, Math.floor(Math.log10(Math.max(min, 1))) - 1));
+    min = Math.floor(min / mag) * mag;
+    return { min, max: null };
+  },
+
+  _renderTime(id, dates, seriesIn, opts = {}) {
     const host = document.getElementById(id);
     if (!host) return;
-    const list = Array.isArray(data) ? data : [];
     const ec = this._ec[id] || (this._ec[id] = echarts.init(host));
     wireChartHoverClear(host, ec);
     const base = _baseEcharts();
+    const kind = opts.kind === "line" ? "line" : "bar";
+    const list = Array.isArray(seriesIn) ? seriesIn : [];
+    const hasValue = dates.length && list.some((s) => (s.values || []).some((v) => v != null));
+    if (!hasValue) {
+      this._emptyChart(ec, base, "该范围内暂无按日数据");
+      return;
+    }
+    const percent = !!opts.percent;
+    const palette = base.palette && base.palette.length ? base.palette : _palette();
+    const labels = this._dateLabels(dates);
+    const c0 = palette[0] || _accentOklch(1);
+    const series = list.map((s, i) => {
+      const color = palette[i % palette.length] || c0;
+      const item = {
+        name: s.name || "",
+        type: kind,
+        data: s.values || [],
+      };
+      if (kind === "bar") {
+        item.barMaxWidth = list.length >= 4 ? 12 : 18;
+        item.barGap = "28%";
+        item.barCategoryGap = "42%";
+        item.showBackground = true;
+        item.backgroundStyle = {
+          color: "rgba(128,128,128,0.07)",
+          borderRadius: [8, 8, 2, 2],
+        };
+        item.itemStyle = {
+          borderRadius: [8, 8, 2, 2],
+          color: {
+            type: "linear", x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color },
+              { offset: 1, color: this._withAlpha(color, 0.38) },
+            ],
+          },
+          shadowBlur: 6,
+          shadowColor: this._withAlpha(color, 0.22),
+          shadowOffsetY: 2,
+        };
+        item.emphasis = {
+          focus: "self",
+          itemStyle: {
+            shadowBlur: 12,
+            shadowColor: this._withAlpha(color, 0.4),
+          },
+        };
+      } else {
+        const fillTop = this._withAlpha(color, list.length > 3 ? 0.14 : 0.28);
+        item.smooth = 0.4;
+        item.smoothMonotone = "x";
+        item.symbol = "emptyCircle";
+        item.symbolSize = 8;
+        item.showSymbol = false;
+        item.connectNulls = true;
+        item.z = list.length - i;
+        item.lineStyle = {
+          width: 2.5,
+          color,
+          cap: "round",
+          join: "round",
+          shadowBlur: 10,
+          shadowColor: this._withAlpha(color, 0.35),
+          shadowOffsetY: 4,
+        };
+        item.itemStyle = {
+          color,
+          borderColor: base.bg1,
+          borderWidth: 2,
+        };
+        item.areaStyle = {
+          color: {
+            type: "linear", x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: fillTop },
+              { offset: 1, color: this._withAlpha(color, 0) },
+            ],
+          },
+        };
+        item.emphasis = {
+          focus: "series",
+          scale: true,
+          itemStyle: { borderWidth: 2 },
+          lineStyle: { width: 3.2 },
+        };
+      }
+      return item;
+    });
+    const yRange = this._yAxisRange(list, percent);
+    const yAxis = {
+      type: "value",
+      min: yRange.min,
+      scale: !percent && yRange.min > 0,
+      axisLine: { show: false }, axisTick: { show: false },
+      axisLabel: {
+        color: base.fgDim, fontSize: 11,
+        formatter: percent ? "{value}%" : undefined,
+      },
+      splitLine: { lineStyle: { color: base.line, type: "dashed" } },
+    };
+    if (yRange.max != null) yAxis.max = yRange.max;
+    ec.setOption(Object.assign(_anim(), {
+      backgroundColor: "transparent",
+      textStyle: base.text,
+      color: palette,
+      legend: {
+        top: 0, right: 8, icon: "roundRect", itemWidth: 12, itemHeight: 6, itemGap: 12,
+        textStyle: { color: base.fgDim, fontSize: 11 },
+      },
+      grid: { left: 10, right: 16, top: 36, bottom: 24, containLabel: true },
+      tooltip: _tooltip(kind === "line"
+        ? {
+            trigger: "axis",
+            axisPointer: {
+              type: "line",
+              snap: true,
+              animation: false,
+              lineStyle: { color: c0, opacity: 0.28, width: 1.5, type: "solid" },
+            },
+            valueFormatter: percent
+              ? (v) => (v == null || v === "" ? "—" : `${Number(v).toFixed(2)}%`)
+              : undefined,
+          }
+        : {
+            trigger: "item",
+            axisPointer: { type: "none" },
+            formatter: (p) => {
+              if (!p) return "";
+              const raw = p.value;
+              const val = (raw == null || raw === "")
+                ? "—"
+                : (percent ? `${Number(raw).toFixed(2)}%` : raw);
+              return `${p.marker}${p.seriesName}<br/>${p.name}：${val}`;
+            },
+          }),
+      xAxis: {
+        type: "category",
+        data: labels,
+        boundaryGap: kind === "bar",
+        axisLine: { lineStyle: { color: base.line } },
+        axisLabel: { color: base.fgDim, fontSize: 11 },
+        axisTick: { show: false }, splitLine: { show: false },
+      },
+      yAxis,
+      series,
+    }), true);
+  },
+
+  _renderPie(id, data, opts = {}) {
+    const host = document.getElementById(id);
+    if (!host) return;
+    const ec = this._ec[id] || (this._ec[id] = echarts.init(host));
+    wireChartHoverClear(host, ec);
+    const base = _baseEcharts();
+    const list = Array.isArray(data) ? data : [];
+    const hasValue = list.some((d) => Number(d.value) > 0);
+    if (!list.length || !hasValue) {
+      this._emptyChart(ec, base, "暂无数据");
+      return;
+    }
+    const percent = !!opts.percent;
+    const palette = base.palette && base.palette.length ? base.palette : _palette();
     ec.setOption(Object.assign(_anim({
       animationDuration: 700,
       animationDurationUpdate: 500,
     }), {
       backgroundColor: "transparent",
       textStyle: base.text,
-      color: base.palette.length ? base.palette : undefined,
-      tooltip: _tooltip({ trigger: "item" }),
-      legend: { orient: "vertical", right: 10, top: "center", icon: "circle", textStyle: { color: base.fgDim, fontSize: 11 } },
+      color: palette,
+      tooltip: _tooltip({
+        trigger: "item",
+        formatter: percent
+          ? (p) => `${p.marker}${p.name} ${Number(p.value).toFixed(2)}%`
+          : undefined,
+      }),
+      legend: {
+        bottom: 8, left: "center", orient: "horizontal", icon: "circle",
+        itemGap: 16, itemWidth: 10, itemHeight: 10,
+        textStyle: { color: base.fgDim, fontSize: 11 },
+      },
       series: [{
         type: "pie",
-        radius: ["52%", "78%"],
-        center: ["38%", "50%"],
+        radius: ["46%", "70%"],
+        center: ["50%", "46%"],
         avoidLabelOverlap: false,
         itemStyle: { borderColor: base.bg1, borderWidth: 2 },
         label: { show: false },
@@ -134,167 +558,11 @@ const Analysis = {
     }), true);
   },
 
-  _renderBar(id, data, opts = {}) {
-    const host = document.getElementById(id);
-    if (!host) return;
-    const list = (Array.isArray(data) ? data : []).filter(d => d && d.name != null);
-    const hasValue = list.some(d => Number(d.value) > 0);
-    const ec = this._ec[id] || (this._ec[id] = echarts.init(host));
-    wireChartHoverClear(host, ec);
-    const base = _baseEcharts();
-    if (!list.length || !hasValue) {
-      ec.setOption(Object.assign(_anim(), {
-        backgroundColor: "transparent",
-        title: {
-          text: list.length ? "暂无数值数据" : "暂无数据",
-          left: "center", top: "center",
-          textStyle: { color: base.fgDim, fontSize: 12, fontWeight: 400 },
-        },
-        xAxis: { show: false }, yAxis: { show: false },
-        series: [],
-      }), true);
-      return;
-    }
-    const { horizontal = false, paletteIdx = 0 } = opts;
-    const paletteN = (base.palette && base.palette.length) || 0;
-    const color = paletteN ? (base.palette[paletteIdx % paletteN] || _accentOklch(1)) : _accentOklch(1);
-    const cats = list.map(d => d.name);
-    const vals = list.map(d => d.value);
-    const cat = (axisDef) => Object.assign({
-      type: "category", data: cats,
-      axisLine: { lineStyle: { color: base.line } },
-      axisLabel: { color: base.fgDim, fontSize: 11, rotate: horizontal ? 0 : 0 },
-      axisTick: { show: false }, splitLine: { show: false },
-    }, axisDef || {});
-    const val = (axisDef) => Object.assign({
-      type: "value",
-      axisLine: { show: false }, axisTick: { show: false },
-      axisLabel: { color: base.fgDim, fontSize: 11 },
-      splitLine: { lineStyle: { color: base.line, type: "dashed" } },
-    }, axisDef || {});
-    ec.setOption(Object.assign(_anim(), {
-      backgroundColor: "transparent",
-      textStyle: base.text,
-      grid: { left: 10, right: 18, top: 18, bottom: 24, containLabel: true },
-      tooltip: _tooltip({ trigger: "axis", axisPointer: { type: "none" } }),
-      xAxis: horizontal ? val() : cat(),
-      yAxis: horizontal ? cat() : val(),
-      series: [{
-        type: "bar",
-        data: vals,
-        barMaxWidth: 22,
-        itemStyle: {
-          borderRadius: horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0],
-          color: {
-            type: "linear",
-            x: 0, y: horizontal ? 0 : 1, x2: horizontal ? 1 : 0, y2: 0,
-            colorStops: [
-              { offset: 0, color: this._withAlpha(color, 0.25) },
-              { offset: 1, color },
-            ],
-          },
-        },
-        emphasis: { disabled: true },
-      }],
-    }), true);
-  },
-
-  _renderTrend(id, series) {
-    const host = document.getElementById(id);
-    if (!host) return;
-    const list = Array.isArray(series) ? series : [];
-    const ec = this._ec[id] || (this._ec[id] = echarts.init(host));
-    wireChartHoverClear(host, ec);
-    const base = _baseEcharts();
-    const c0 = (base.palette && base.palette[0]) || _accentOklch(1);
-    const values = list.map(d => d.value);
-    ec.setOption(Object.assign(_anim(), {
-      backgroundColor: "transparent",
-      textStyle: base.text,
-      color: [c0],
-      grid: { left: 10, right: 18, top: 12, bottom: 24, containLabel: true },
-      tooltip: _tooltip({
-        trigger: "axis",
-        axisPointer: {
-          type: "line",
-          snap: false,
-          animation: false,
-          lineStyle: { color: c0, opacity: 0.45, width: 1 },
-        },
-      }),
-      xAxis: {
-        type: "category", boundaryGap: false, data: list.map(d => d.date),
-        axisLine: { lineStyle: { color: base.line } },
-        axisLabel: { color: base.fgDim, fontSize: 11 },
-        axisTick: { show: false }, splitLine: { show: false },
-      },
-      yAxis: {
-        type: "value",
-        axisLine: { show: false }, axisTick: { show: false },
-        axisLabel: { color: base.fgDim, fontSize: 11 },
-        splitLine: { lineStyle: { color: base.line, type: "dashed" } },
-      },
-      series: [{
-        name: "入库量",
-        type: "line",
-        data: values,
-        smooth: true,
-        symbol: "none",
-        lineStyle: { width: 2, color: c0 },
-        areaStyle: {
-          color: {
-            type: "linear", x: 0, y: 0, x2: 0, y2: 1,
-            colorStops: [
-              { offset: 0, color: this._withAlpha(c0, 0.34) },
-              { offset: 1, color: this._withAlpha(c0, 0) },
-            ],
-          },
-        },
-        emphasis: { disabled: true },
-      }],
-    }), true);
-  },
-
-  // ---------- helpers ----------
   _withAlpha(color, a) {
     if (!color) return `rgba(0,0,0,${a})`;
     const s = String(color).trim();
-    // rgb(r,g,b) / rgba(r,g,b,x) -> rgba(r,g,b,a)
     const m = s.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i);
     if (m) return `rgba(${m[1]}, ${m[2]}, ${m[3]}, ${a})`;
-    // 颜色统一为 rgb（见 app.js 的 _accentOklch/_palette），不再有 oklch；兜底直接返回原值。
     return s;
   },
-  _zeroFill(byDate, span) {
-    const map = Object.create(null);
-    (byDate || []).forEach(d => { map[d.date] = d.value; });
-    const out = [];
-    const today = new Date();
-    for (let i = span - 1; i >= 0; i--) {
-      const d = new Date(today); d.setDate(today.getDate() - i);
-      const k = d.toISOString().slice(0, 10);
-      out.push({ date: `${d.getMonth() + 1}/${d.getDate()}`, value: map[k] || 0 });
-    }
-    return out;
-  },
-  _fakeSpark(seed, n) {
-    const out = [];
-    const s = (seed || 1) + n;
-    for (let i = 0; i < n; i++) {
-      out.push(Math.max(0, Math.round((seed || 0) * 0.5 + Math.sin(i * 0.5 + s) * Math.max(1, (seed || 1) * 0.08))));
-    }
-    return out;
-  },
-  _deltaFromSpark(arr) {
-    if (!arr || arr.length < 4) return null;
-    const half = Math.floor(arr.length / 2);
-    const a = arr.slice(0, half).reduce((s, v) => s + v, 0);
-    const b = arr.slice(half).reduce((s, v) => s + v, 0);
-    if (a === 0 && b === 0) return null;
-    if (a === 0) return { up: true, label: "+∞" };
-    const pct = ((b - a) / a) * 100;
-    return { up: pct >= 0, label: (pct >= 0 ? "+" : "") + pct.toFixed(1) + "%" };
-  },
 };
-
-// 窗口 resize 由 app.js 的全局监听统一处理（只 resize 当前可见页的图表）。

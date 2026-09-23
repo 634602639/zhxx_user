@@ -12,6 +12,7 @@ import io
 import json
 import mimetypes
 import os
+import re
 import zipfile
 from datetime import datetime, time
 from typing import Optional
@@ -19,7 +20,7 @@ from typing import Optional
 from flask import Blueprint, jsonify, request, send_file
 from sqlalchemy import or_
 
-from models import CleanData, db, ReportComposeDraft, ReportTemplate
+from models import CleanData, db, ReportComposeDraft, ReportTemplate, utc_now_second, to_db_text
 from services import report_service
 from services.log_service import log_op
 from services.ooxml_preview_service import (
@@ -33,8 +34,10 @@ from services.ooxml_preview_service import (
 from services.nlp_service import extract_keywords, summarize, extract_placeholders
 from validators import (
     ValidationError,
+    L_EP_URL,
     L_TEMPLATE_NAME,
     require_str,
+    require_url,
     validate_compose_draft_content,
     validate_compose_draft_title,
     validate_search_keyword,
@@ -56,15 +59,15 @@ mimetypes.add_type("application/vnd.ms-powerpoint", ".ppt")
 
 bp = Blueprint("report_generate", __name__, url_prefix="/api/template")
 
-# ① 模板采集上传白名单（仅 .docx）
-ALLOWED_EXT = {".docx"}
+# ① 模板采集上传白名单
+ALLOWED_EXT = {".docx", ".pptx"}
 MAX_TEXT_BYTES = 200_000   # 摘要 / 关键词在线试用入参上限
 MAX_TEMPLATE_BYTES = 500_000
 
 
 @bp.route("/upload", methods=["POST"])
 def upload_template():
-    """报告模板采集：仅接受 .docx，上传后解析正文与占位符。"""
+    """报告模板采集：接受 .docx / .pptx，上传后解析正文与占位符。"""
     if "file" not in request.files:
         return jsonify({"code": 1, "msg": "未上传文件"}), 400
     f = request.files["file"]
@@ -100,29 +103,44 @@ def upload_template():
 
     mime = (f.mimetype or "").strip() or mimetypes.guess_type(raw_filename)[0] or "application/octet-stream"
 
-    # 抽正文：按 zip 嗅探纠正误判扩展名（例如实为 docx 却写成 .doc）
-    eff = _normalize_preview_ext(ext, blob)
-    if eff != ".docx":
-        return jsonify({"code": 1, "msg": "仅支持 .docx 模板文件"}), 400
-    parsed = _decode_template_bytes(blob, ".docx") or ""
-    if parsed and len(parsed) > MAX_TEMPLATE_BYTES:
-        parsed = parsed[:MAX_TEMPLATE_BYTES]
-    text = parsed
-    keywords = ",".join(extract_keywords(text, top_k=10)) if text else ""
-    placeholders = extract_placeholders(text)
+    # 抽正文：按 zip 嗅探纠正误判扩展名
+    try:
+        eff = _normalize_preview_ext(ext, blob)
+        if eff not in ALLOWED_EXT:
+            return jsonify({"code": 1, "msg": "仅支持 .docx / .pptx 模板文件"}), 400
+        if eff == ".pptx":
+            parsed = pptx_zip_plain_extract(blob) or ""
+        else:
+            parsed = _decode_template_bytes(blob, ".docx") or docx_zip_plain_extract(blob) or ""
+        if parsed and len(parsed) > MAX_TEMPLATE_BYTES:
+            parsed = parsed[:MAX_TEMPLATE_BYTES]
+        text = to_db_text(parsed)
+        keywords = to_db_text(",".join(extract_keywords(text, top_k=10)) if text else "")[:512]
+        placeholders = extract_placeholders(text)
+        name = to_db_text(name)
+        raw_filename = to_db_text(raw_filename)[:255]
+        mime = to_db_text(mime)[:128]
+    except Exception as e:
+        return jsonify({"code": 1, "msg": f"解析模板失败: {e}"}), 400
 
-    tpl = ReportTemplate(
-        name=name,
-        file_path=None,          # 不再依赖磁盘
-        file_blob=blob,
-        file_size=len(blob),
-        mime_type=mime,
-        original_filename=raw_filename[:255],
-        content=text,
-        keywords=keywords,
-    )
-    db.session.add(tpl)
-    db.session.commit()
+    try:
+        tpl = ReportTemplate(
+            name=name,
+            file_path=None,          # 不再依赖磁盘
+            file_blob=blob,
+            file_size=len(blob),
+            mime_type=mime,
+            original_filename=raw_filename,
+            content=text,
+            keywords=keywords,
+        )
+        db.session.add(tpl)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        log_op("报告生成", "模板采集", str(e), success=False)
+        return jsonify({"code": 1, "msg": f"模板入库失败: {e}"}), 500
+
     log_op(
         "报告生成", "模板采集",
         f"上传 {name} ({ext}, {len(blob)} 字节, 占位符 {len(placeholders)} 个)",
@@ -524,6 +542,38 @@ def preview_html(tid: int):
         return jsonify({"code": 1, "msg": f"预览转换失败: {e}"}), 500
 
 
+_CLEAN_NUM_RE = re.compile(r"-?\d+(?:\.\d+)?(?:\s*/\s*-?\d+(?:\.\d+)?)?")
+
+
+def fill_value_from_clean(row) -> str:
+    """入库记录用于替换 X 的字符串：只要数值（去掉 %、万 等），因占位本身已是数字位。"""
+    if not row:
+        return ""
+    content = "" if row.content is None else str(row.content).strip()
+    stripped = (
+        content.replace("%", "")
+        .replace("％", "")
+        .replace("万", "")
+        .replace("个", "")
+        .strip()
+    )
+    m = _CLEAN_NUM_RE.search(stripped)
+    if m:
+        return re.sub(r"\s+", "", m.group(0))
+    mv = getattr(row, "metric_value", None)
+    if mv is not None:
+        try:
+            x = float(mv)
+        except (TypeError, ValueError):
+            x = None
+        if x is not None and x == x:  # not NaN
+            if x == int(x) and abs(x) < 1e12:
+                return str(int(x))
+            s = f"{x:.4f}".rstrip("0").rstrip(".")
+            return s or "0"
+    return content
+
+
 def _resolve_template_fill_values(bindings) -> list:
     """与前端占位映射一致：解析 bindings 为替换字符串列表（顺序即占位 1..n）。"""
     vals = []
@@ -537,9 +587,10 @@ def _resolve_template_fill_values(bindings) -> list:
             except (TypeError, ValueError):
                 cid = None
             row = CleanData.query.get(cid) if cid else None
-            vals.append(
-                str(row.content) if row and row.content is not None else "（未找到该条入库数据）"
-            )
+            if row:
+                vals.append(fill_value_from_clean(row))
+            else:
+                vals.append("（未找到该条入库数据）")
         else:
             vals.append(str(b.get("manual") or "").strip())
     return vals
@@ -960,6 +1011,237 @@ def delete_compose_draft(did: int):
     db.session.commit()
     log_op("报告生成", "合成草稿删除", f"id={did}")
     return jsonify({"code": 0, "msg": "已删除"})
+
+
+@bp.route("/llm-status", methods=["GET"])
+@bp.route("/llm-config", methods=["GET"])
+def llm_status():
+    from services.llm_service import llm_status_public
+    return jsonify({"code": 0, "data": llm_status_public()})
+
+
+@bp.route("/llm-config", methods=["PUT"])
+def save_llm_config_route():
+    """页面保存 OpenAI 兼容接口：地址、模型名、API Key（密钥不回显）。"""
+    from services.llm_service import save_llm_config, llm_status_public
+    data = request.get_json(silent=True) or {}
+    try:
+        base = require_str(data.get("base_url"), "接口地址", max_len=L_EP_URL, required=False)
+        if base:
+            base = require_url(base)
+        model = require_str(data.get("model"), "模型名", max_len=128, required=False)
+        key_in = data.get("api_key")
+        api_key = None
+        if key_in is not None:
+            api_key = require_str(key_in, "API Key", max_len=2048, required=False)
+        clear = bool(data.get("clear_api_key"))
+    except ValidationError as e:
+        return jsonify({"code": 1, "msg": str(e)}), 400
+    save_llm_config(base_url=base, model=model, api_key=api_key, clear_api_key=clear)
+    public = llm_status_public()
+    log_op("报告生成", "保存大模型配置", f"url={public.get('base_url') or '-'} model={public.get('model') or '-'}")
+    return jsonify({"code": 0, "msg": "已保存", "data": public})
+
+
+@bp.route("/llm-config/test", methods=["POST"])
+def test_llm_config_route():
+    """用当前表单或已保存配置探测 POST /v1/chat/completions。"""
+    from services.llm_service import overlay_config, probe_chat
+    data = request.get_json(silent=True) or {}
+    try:
+        if data.get("base_url"):
+            require_url(data.get("base_url"))
+        if data.get("model") is not None:
+            require_str(data.get("model"), "模型名", max_len=128, required=False)
+        cfg = overlay_config(data)
+        result = probe_chat(cfg)
+    except ValidationError as e:
+        return jsonify({"code": 1, "msg": str(e)}), 400
+    except Exception as e:
+        log_op("报告生成", "测试大模型", str(e)[:200], success=False)
+        return jsonify({"code": 1, "msg": str(e)[:300]}), 400
+    log_op("报告生成", "测试大模型", "ok")
+    return jsonify({"code": 0, "msg": "连接正常", "data": result})
+
+
+@bp.route("/<int:tid>/autofill", methods=["POST"])
+def autofill_template_route(tid: int):
+    """拉取（可选）指标后按规则+大模型填入模板 xx 占位，保存合成草稿。"""
+    t = ReportTemplate.query.get(tid)
+    if not t:
+        return jsonify({"code": 1, "msg": "模板不存在"}), 404
+    blob = _template_blob_bytes(t)
+    if not blob:
+        return jsonify({"code": 1, "msg": "原始文件已不存在"}), 404
+    data = request.get_json(silent=True) or {}
+    fetch_first = bool(data.get("fetch"))
+    use_llm = data.get("use_llm")
+    if use_llm is None:
+        use_llm = True
+    try:
+        days = max(1, min(365, int(data.get("days") or 7)))
+    except (TypeError, ValueError):
+        days = 7
+
+    fetch_info = None
+    if fetch_first:
+        try:
+            from services.unit_metric_service import fetch_all_unit_metrics
+            fetch_info = fetch_all_unit_metrics(
+                date_from=data.get("date_from"),
+                date_to=data.get("date_to"),
+                occur_at=data.get("occur_time"),
+            )
+        except ValidationError as e:
+            return jsonify({"code": 1, "msg": str(e)}), 400
+        except Exception as e:
+            log_op("报告生成", "自动填报前采集", str(e), success=False)
+            return jsonify({"code": 1, "msg": f"指标拉取失败: {e}"}), 502
+
+    try:
+        from services.template_autofill_service import autofill_template
+
+        result = autofill_template(
+            blob,
+            t.original_filename or "",
+            period_data=data,
+            use_llm=bool(use_llm),
+            days=days,
+        )
+    except Exception as e:
+        log_op("报告生成", "自动填报", str(e), success=False)
+        return jsonify({"code": 1, "msg": f"自动填报失败: {e}"}), 500
+
+    save_draft = data.get("save_draft")
+    if save_draft is None:
+        save_draft = True
+    draft_item = None
+    if save_draft:
+        try:
+            tn = (t.name or "").strip() or "未命名模板"
+            title = f"{tn} · 自动填报"
+            draft = ReportComposeDraft(
+                template_id=t.id,
+                template_name=(t.name or "")[:128],
+                title=title[:255],
+                content=to_db_text(result.get("plain_after") or ""),
+                status="pending_polish",
+                bindings_json=json.dumps(result.get("bindings") or [], ensure_ascii=False),
+                file_blob=result.get("file_blob"),
+                file_mime=(result.get("mime") or "")[:128],
+                file_name=f"{''.join(c for c in tn if c not in '\\/:*?\"<>|')[:80] or 'draft'}_自动填报{result.get('ext') or '.docx'}",
+            )
+            db.session.add(draft)
+            db.session.commit()
+            draft_item = draft.to_list_item()
+            log_op("报告生成", "自动填报", f"模板 id={tid} 草稿 id={draft.id}")
+        except Exception as e:
+            db.session.rollback()
+            log_op("报告生成", "自动填报入库草稿", str(e), success=False)
+            return jsonify({"code": 1, "msg": f"填报成功但保存草稿失败: {e}"}), 500
+
+    return jsonify({
+        "code": 0,
+        "msg": "自动填报完成",
+        "data": {
+            "slot_count": result.get("slot_count"),
+            "filled_count": result.get("filled_count"),
+            "values": result.get("values"),
+            "bindings": result.get("bindings"),
+            "plain_after": result.get("plain_after"),
+            "metrics": result.get("metrics"),
+            "period": result.get("period"),
+            "llm_used": result.get("llm_used"),
+            "narrative_filled": result.get("narrative_filled") or [],
+            "kind": result.get("kind"),
+            "draft": draft_item,
+            "fetch": fetch_info,
+        },
+    })
+
+
+def _compose_polish_error_msg(exc: Exception) -> str:
+    """把大模型/网络异常收成列表可展示的短句。"""
+    name = exc.__class__.__name__
+    text = str(exc).strip()
+    if name in ("Timeout", "ConnectTimeout", "ReadTimeout"):
+        return "大模型请求超时，请稍后重试"
+    if name in ("ConnectionError",):
+        return "无法连接大模型接口，请检查地址与网络"
+    if name == "HTTPError":
+        resp = getattr(exc, "response", None)
+        code = getattr(resp, "status_code", None)
+        if code:
+            return f"大模型接口返回 HTTP {code}"
+        return "大模型接口请求失败"
+    if not text:
+        return "润色失败"
+    return text[:512]
+
+
+def _write_compose_draft_status(did: int, status: str, detail: str | None):
+    row = ReportComposeDraft.query.get(did)
+    if not row:
+        return None
+    row.status = status
+    row.status_detail = (detail or "")[:512] or None
+    row.updated_at = utc_now_second()
+    db.session.commit()
+    return row
+
+
+@bp.route("/compose-draft/<int:did>/polish", methods=["POST"])
+def polish_compose_draft(did: int):
+    d = ReportComposeDraft.query.get(did)
+    if not d:
+        return jsonify({"code": 1, "msg": "草稿不存在"}), 404
+    try:
+        d.status = "polishing"
+        d.status_detail = None
+        d.updated_at = utc_now_second()
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"code": 1, "msg": f"无法更新润色状态: {e}"}), 500
+
+    try:
+        from services.polish_service import polish_text_and_office
+
+        out = polish_text_and_office(d.content or "", d.file_blob)
+        d = ReportComposeDraft.query.get(did)
+        if not d:
+            return jsonify({"code": 1, "msg": "草稿不存在"}), 404
+        d.content = out.get("content") or d.content
+        if out.get("file_blob") is not None:
+            d.file_blob = out["file_blob"]
+        n = int(out.get("replacement_count") or 0)
+        if out.get("demo_mode"):
+            detail = f"未配置大模型，已用本地词表替换 {n} 处" if n else "未配置大模型，本地词表无需替换"
+        else:
+            detail = f"替换 {n} 处" if n else "无需修改"
+        d.status = "polished"
+        d.status_detail = detail[:512]
+        d.updated_at = utc_now_second()
+        db.session.commit()
+        log_op("报告生成", "草稿润色", f"id={did} {detail}")
+        item = d.to_list_item()
+        item["replacement_count"] = n
+        item["replacements"] = out.get("replacements") or []
+        return jsonify({"code": 0, "msg": "润色完成", "data": item})
+    except Exception as e:
+        db.session.rollback()
+        msg = _compose_polish_error_msg(e)
+        try:
+            d = _write_compose_draft_status(did, "polish_error", msg)
+        except Exception:
+            db.session.rollback()
+            d = None
+        log_op("报告生成", "草稿润色", msg, success=False)
+        http = 400 if isinstance(e, (RuntimeError, ValueError)) else 500
+        payload = {"code": 1, "msg": msg}
+        if d is not None:
+            payload["data"] = d.to_list_item()
+        return jsonify(payload), http
 
 
 @bp.route("/keywords", methods=["POST"])

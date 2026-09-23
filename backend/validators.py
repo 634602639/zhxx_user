@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import random
+from datetime import datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import urlparse
 
@@ -25,6 +27,8 @@ L_CLEAN_SOURCE = 64
 L_CLEAN_TAGS = 255
 L_CLEAN_CATEGORY = 64
 L_CLEAN_LABEL = 64
+L_ORG_REMARK = 64
+L_ORG_NAME = 64
 L_CLEAN_TITLE = 255
 L_CLEAN_CONTENT = 500_000
 
@@ -57,6 +61,68 @@ def _s(val: Any) -> str:
     if val is None:
         return ""
     return str(val).strip()
+
+
+def parse_time_range(date_from: Any, date_to: Any) -> tuple[datetime, datetime]:
+    """解析采集时间范围。仅填日期的结束日含当天 23:59:59。"""
+    start = parse_datetime_value(date_from, "起始时间", required=True)
+    end = parse_datetime_value(date_to, "结束时间", required=True)
+    raw_to = str(date_to or "").strip().replace("T", " ")
+    if end is not None and len(raw_to) <= 10:
+        end = end.replace(hour=23, minute=59, second=59)
+    if start is None or end is None:
+        raise ValidationError("请填写时间范围")
+    if end < start:
+        raise ValidationError("结束时间不能早于起始时间")
+    return start, end
+
+
+def parse_datetime_value(val: Any, label: str = "数据对应时间", *, required: bool = False) -> Optional[datetime]:
+    """解析 YYYY-MM-DD[ HH:MM[:SS]] 或 ISO T 分隔。仅日期时取当天 00:00:00。"""
+    if val is None or val == "":
+        if required:
+            raise ValidationError(f"请填写{label}")
+        return None
+    if isinstance(val, datetime):
+        return val.replace(microsecond=0)
+    s = str(val).strip().replace("T", " ").replace("Z", "")
+    if "." in s:
+        s = s.split(".", 1)[0]
+    for n, fmt in ((19, "%Y-%m-%d %H:%M:%S"), (16, "%Y-%m-%d %H:%M"), (10, "%Y-%m-%d")):
+        chunk = s[:n]
+        if len(chunk) < n:
+            continue
+        try:
+            dt = datetime.strptime(chunk, fmt)
+            return dt.replace(microsecond=0)
+        except ValueError:
+            continue
+    raise ValidationError(f"{label}格式无效，应为 YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS")
+
+
+def default_data_occur_time() -> datetime:
+    """演示用数据对应时间：过去 1～6 天、白天时段随机，避免与采集当天相同。"""
+    return random_demo_occur_time()
+
+
+def random_demo_occur_time(start: Optional[datetime] = None, end: Optional[datetime] = None) -> datetime:
+    """在给定时间范围内随机一个数据对应时间；未给范围时取过去 1～6 天白天。"""
+    if start is not None and end is not None:
+        a, b = start, end
+        if b < a:
+            a, b = b, a
+        span = (b - a).total_seconds()
+        if span <= 0:
+            return a.replace(microsecond=0)
+        return (a + timedelta(seconds=random.uniform(0, span))).replace(microsecond=0)
+    now = datetime.now().replace(microsecond=0)
+    d = (now - timedelta(days=random.randint(1, 6))).date()
+    return datetime(
+        d.year, d.month, d.day,
+        random.randint(8, 21),
+        random.randint(0, 59),
+        random.randint(0, 59),
+    )
 
 
 def require_str(
@@ -148,7 +214,8 @@ def validate_tagged_create(data: dict) -> dict:
     if len(val) > L_TAG_VALUE:
         raise ValidationError(f"选中内容不能超过 {L_TAG_VALUE} 个字符")
     ep_name = optional_str(data.get("endpoint_name"), "配置名称", max_len=L_ENDPOINT_NAME)
-    return {"tag": tag, "value": val, "endpoint_name": ep_name}
+    occur = parse_datetime_value(data.get("occur_time"), "数据对应时间")
+    return {"tag": tag, "value": val, "endpoint_name": ep_name, "occur_time": occur}
 
 
 def validate_tagged_update(data: dict) -> dict:
@@ -183,9 +250,13 @@ def validate_clean_payload(data: dict, *, for_update: bool = False) -> dict:
         out["endpoint_category"] = optional_str(
             data.get("endpoint_category"), "类别", max_len=L_CLEAN_LABEL
         )
+    if "occur_time" in data:
+        out["occur_time"] = parse_datetime_value(data.get("occur_time"), "数据对应时间")
     if not for_update:
         if not _s(out.get("content")):
             raise ValidationError("请填写值")
+        if "occur_time" not in out:
+            out["occur_time"] = parse_datetime_value(data.get("occur_time"), "数据对应时间")
     return out
 
 

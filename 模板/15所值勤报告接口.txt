@@ -1,0 +1,99 @@
+xxx个中心/节点
+http://21.122.56.108:8080/api/index/getConstructionPoint?levelField=0
+
+
+入网用户数xx
+http://21.122.56.108:8080/api/sjyy/getSynthesizeStatisticsData/access_network_user
+
+
+(节点)在线率xx% ; 数据服务量
+http://21.122.56.108:8080/api/sjyy/getOperationSituationSynthesizeSjyy
+
+
+文档交互量
+http://21.122.56.108:8080/api/sjyy/getApplicationServiceStatus/doc_interaction
+
+
+
+
+本级
+在线节点数（个）
+http://21.122.56.108:8080/api/index/getConstructionPoint?levelField=0
+"data": {
+"allCounts": 288,
+"builtCounts": 233,
+"onlineCounts": 216√
+},
+
+节点数（个）	xx/xx
+http://21.122.56.108:8080/api/index/getConstructionPoint?levelField=0
+"data": {
+"allCounts": 288,√
+"builtCounts": 233,
+"onlineCounts": 216√
+},
+节点在线率（%）	xx%
+http://21.122.56.108:8080/api/sjyy/getOperationSituationSynthesizeSjyy
+{
+"keyField": "node_online_quan",
+"name": "节点在线率",
+"number": "93.00%",
+"risk": 1
+}
+
+设备完好率（%）	xx%
+http://21.122.56.108:8080/api/sjyy/getOperationSituationSynthesizeSjyy
+{
+"keyField": "equipment_ok_rate_quan",
+"name": "设备完好率",
+"number": "90.00%",
+"risk": 2
+},
+计算资源使用率（%）	xx.xx%
+http://21.122.56.108:8080/bigStorageUsedInfo/getStorageResource
+{code: "00000", message: "请求处理成功!",…}
+code
+:
+"00000"
+data
+:
+{jsResourcePct: "85.33"√, storageResourcePct: "63.85", ifUsedPct: "0.01", bigStorageUsedInfos: [,…]}
+bigStorageUsedInfos
+:
+[,…]
+ifUsedPct
+:
+"0.01"
+jsResourcePct
+:
+"85.33"
+storageResourcePct
+:
+"63.85"
+message
+:
+"请求处理成功!"
+存储空间使用率（%）	xx.xx%
+http://21.122.56.108:8080/bigStorageUsedInfo/getStorageResource
+{code: "00000", message: "请求处理成功!",…}
+code
+:
+"00000"
+data
+:
+{jsResourcePct: "85.33"√, storageResourcePct: "63.85"√, ifUsedPct: "0.01", bigStorageUsedInfos: [,…]}
+bigStorageUsedInfos
+:
+[,…]
+ifUsedPct
+:
+"0.01"
+jsResourcePct
+:
+"85.33"
+storageResourcePct
+:
+"63.85"
+message
+:
+"请求处理成功!"

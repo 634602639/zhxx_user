@@ -6,13 +6,6 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
-function zhStatus(s) {
-  const v = String(s || "").toLowerCase();
-  if (v === "stored") return "已入库";
-  if (v === "pending" || v === "") return "待入库";
-  return s || "";
-}
-
 const DataCollect = {
   _eps: [],
   _previewRows: [],
@@ -42,7 +35,7 @@ const DataCollect = {
     }
 
     if (!hasRows) {
-      if (hint) hint.textContent = "暂无解析预览。点采集后会展示原文，可在每条下方选中文本暂存为标签。";
+      if (hint) hint.textContent = "暂无解析预览。点采集后会展示原文，可在每条下方选中文本后入库。";
       if (tbody) {
         tbody.innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center;padding:24px;">暂无数据</td></tr>`;
       }
@@ -54,7 +47,7 @@ const DataCollect = {
       const trunc = !!data.raw_truncated;
       hint.textContent = trunc
         ? `共解析 ${added} 条（不入库）；预览已达条数/正文长度上限。每条下方可展开查看采集原文。`
-        : `共解析 ${added} 条（不入库）。每条下方默认折叠；选中"中间部分值"后可暂存并打标签，供后续入库。`;
+        : `共解析 ${added} 条（不入库）。每条下方默认折叠；选中文字并填写标签后可直接入库。`;
       tbody.innerHTML = rows
         .flatMap((i, idx) => {
           const main = `
@@ -65,7 +58,7 @@ const DataCollect = {
         <td>${escapeHtml(i.source || "")}</td>
         <td>${escapeHtml(i.category || "")}</td>
         <td class="cell-preview-title" title="${escapeHtml(i.title || "")}">${escapeHtml(i.title || "")}</td>
-        <td>${escapeHtml(i.created_at || i.occur_time || "—")}</td>
+        <td title="采集 ${escapeHtml(i.created_at || "")}">${escapeHtml(i.occur_time || "—")}</td>
       </tr>`;
           const raw = i.item_raw_json != null && String(i.item_raw_json).trim() !== ""
             ? `
@@ -77,7 +70,8 @@ const DataCollect = {
               <span class="field-with-hint">
                 <input class="input item-tag-input" data-row-idx="${idx}" type="text" maxlength="64" placeholder="标签（如：IP/告警码/单位/人员）" />
               </span>
-              <button type="button" class="btn small primary btn-tag-save" data-row-idx="${idx}">暂存选中</button>
+              <button type="button" class="btn small primary btn-tag-save" data-row-idx="${idx}">入库选中</button>
+              ${helpTip("在下方原文中拖选一段文字，填写标签后点此写入已入库数据。")}
               <span class="muted item-extract-hint">先在下方原文中选中一段文本</span>
             </div>
             <pre class="item-raw-pre" data-row-idx="${idx}">${escapeHtml(String(i.item_raw_json))}</pre>
@@ -93,7 +87,6 @@ const DataCollect = {
         V.wireDynamicLimitHint(inp, V.PREVIEW_TAG_LIMIT);
       });
 
-      // 绑定“暂存选中”
       tbody.querySelectorAll(".btn-tag-save").forEach((btn) => {
         btn.addEventListener("click", async (ev) => {
           const rowIdx = parseInt(ev.currentTarget.getAttribute("data-row-idx"), 10);
@@ -102,7 +95,7 @@ const DataCollect = {
           const tag = (tagEl ? tagEl.value : "").trim();
           const pre = tbody.querySelector(`.item-raw-pre[data-row-idx="${rowIdx}"]`);
           const sel = window.getSelection ? window.getSelection() : null;
-          const selected = sel ? String(sel.toString() || "") : "";
+          const selected = sel ? String(sel.toString() || "").trim() : "";
 
           if (!V.validateTaggedFields(tag, selected)) return;
           if (pre && sel && sel.anchorNode && !pre.contains(sel.anchorNode)) {
@@ -110,16 +103,18 @@ const DataCollect = {
             return;
           }
           try {
-            const resp = await API.post("/api/data/tagged", {
-              endpoint_id: row.endpoint_id ?? null,
-              endpoint_name: row.endpoint_name ?? "",
-              tag,
-              value: selected,
-              source_excerpt: row.item_raw_json ?? "",
+            const resp = await API.post("/api/data/clean", {
+              source: row.endpoint_name || "",
+              tags: tag,
+              category: "标签入库",
+              content: selected,
+              endpoint_source: row.source || "",
+              endpoint_category: row.category || "",
+              occur_time: row.occur_time || "",
             });
-            toast(resp.msg || "已暂存", "success");
+            toast(resp.msg || "已入库", "success");
             if (tagEl) tagEl.value = "";
-            await DataCollect.loadTagged();
+            await DataCollect.loadClean();
           } catch (e) {
             toast(e.message, "error");
           }
@@ -133,7 +128,7 @@ const DataCollect = {
     const hint = document.getElementById("raw-preview-hint");
     const tbody = document.querySelector("#raw-preview-table tbody");
     this._previewRows = [];
-    if (hint) hint.textContent = "暂无解析预览。点采集后会展示原文，可在每条下方选中文本暂存为标签。";
+    if (hint) hint.textContent = "暂无解析预览。点采集后会展示原文，可在每条下方选中文本后入库。";
     if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center;padding:24px;">暂无数据</td></tr>`;
     toast("解析预览已清空", "success");
   },
@@ -156,7 +151,6 @@ const DataCollect = {
       }
       toast(msg, "success");
       this.showRawPreview(r.data, { append: true });
-      this.loadTagged();
     } catch (e) {
       toast(e.message, "error");
     }
@@ -173,7 +167,6 @@ const DataCollect = {
         toast(msg, "success");
       }
       this.showRawPreview(r.data);
-      this.loadTagged();
     } catch (e) {
       toast(e.message, "error");
     }
@@ -271,79 +264,6 @@ const DataCollect = {
     }
   },
 
-  async loadTagged() {
-    const tbody = document.querySelector("#tagged-table tbody");
-    if (!tbody) return;
-    try {
-      const r = await API.get("/api/data/tagged?size=80");
-      const items = (r.data && r.data.items) ? r.data.items : [];
-      tbody.innerHTML = items.length
-        ? items.map((x, idx) => `
-      <tr>
-        <td>${idx + 1}</td>
-        <td title="${escapeHtml(x.endpoint_name || "")}">${escapeHtml(x.endpoint_name || (x.endpoint_id ? ("#" + x.endpoint_id) : ""))}</td>
-        <td>${escapeHtml(x.tag || "")}</td>
-        <td title="${escapeHtml(x.value || "")}">${escapeHtml(String(x.value || "").slice(0, 80))}${String(x.value || "").length > 80 ? "…" : ""}</td>
-        <td>${escapeHtml(x.source || "")}</td>
-        <td>${escapeHtml(x.category || "")}</td>
-        <td>${escapeHtml(zhStatus(x.status))}</td>
-        <td>${escapeHtml(x.created_at || "")}</td>
-        <td class="cell-mono muted">#${escapeHtml(x.id)}</td>
-        <td class="nowrap">
-          <button type="button" class="btn small btn-tag-edit" data-id="${x.id}" data-tag="${escapeHtml(x.tag || "")}" data-value="${escapeHtml(String(x.value || ""))}">修改</button>
-          <button type="button" class="btn small primary" onclick="DataCollect.storeTagged(${x.id})">入库</button>
-          <button type="button" class="btn small danger" onclick="DataCollect.deleteTagged(${x.id})">删除</button>
-        </td>
-      </tr>`).join("")
-        : `<tr><td colspan="10" class="muted">暂无暂存记录。可在解析预览中选中文本并"暂存选中"。</td></tr>`;
-
-      tbody.querySelectorAll(".btn-tag-edit").forEach((btn) => {
-        btn.addEventListener("click", async (ev) => {
-          const el = ev.currentTarget;
-          const id = parseInt(el.getAttribute("data-id"), 10);
-          const oldTag = el.getAttribute("data-tag") || "";
-          const oldVal = el.getAttribute("data-value") || "";
-          DataCollect.openTagEditModal(id, oldTag, oldVal);
-        });
-      });
-    } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="10" class="muted">${escapeHtml(e.message || "加载失败")}</td></tr>`;
-    }
-  },
-
-  async storeTagged(id) {
-    try {
-      await API.post(`/api/data/tagged/${id}/store`, {});
-      toast("已入库", "success");
-      await this.loadTagged();
-      await this.loadClean();
-    } catch (e) {
-      toast(e.message, "error");
-    }
-  },
-
-  async storeAllTagged() {
-    try {
-      const r = await API.post("/api/data/tagged/store_all", {});
-      toast(`已入库 ${r.data.stored ?? 0} 条`, "success");
-      await this.loadTagged();
-      await this.loadClean();
-    } catch (e) {
-      toast(e.message, "error");
-    }
-  },
-
-  async deleteTagged(id) {
-    if (!confirm("确认删除该暂存记录？")) return;
-    try {
-      await API.del(`/api/data/tagged/${id}`);
-      toast("已删除", "success");
-      await this.loadTagged();
-    } catch (e) {
-      toast(e.message, "error");
-    }
-  },
-
   _decodeHtml(s) {
     const decode = (s) => String(s || "")
       .replace(/&quot;/g, "\"")
@@ -352,50 +272,6 @@ const DataCollect = {
       .replace(/&amp;/g, "&");
     return decode(s);
   },
-
-  openTagEditModal(id, oldTagEsc, oldValEsc) {
-    const modal = document.getElementById("tag-edit-modal");
-    if (!modal) return;
-    document.getElementById("tag-edit-id").value = String(id);
-    document.getElementById("tag-edit-tag").value = this._decodeHtml(oldTagEsc);
-    document.getElementById("tag-edit-value").value = this._decodeHtml(oldValEsc);
-    modal.classList.remove("hidden");
-  },
-
-  closeTagEditModal() {
-    const modal = document.getElementById("tag-edit-modal");
-    if (modal) modal.classList.add("hidden");
-  },
-
-  async saveTagEdit() {
-    const id = (document.getElementById("tag-edit-id").value || "").trim();
-    const tag = (document.getElementById("tag-edit-tag").value || "").trim();
-    const value = document.getElementById("tag-edit-value").value || "";
-    if (!id) return;
-    if (!V.validateTaggedFields(tag, value)) return;
-    try {
-      await API.put(`/api/data/tagged/${id}`, { tag, value: value.trim() });
-      toast("已更新", "success");
-      this.closeTagEditModal();
-      await this.loadTagged();
-    } catch (e) {
-      toast(e.message, "error");
-    }
-  },
-
-  async clearTagged() {
-    if (!confirm("确认一键清空标签暂存区？")) return;
-    try {
-      const r = await API.post("/api/data/tagged/clear", {});
-      toast(`已清空 ${r.data.deleted ?? 0} 条`, "success");
-      await this.loadTagged();
-    } catch (e) {
-      toast(e.message, "error");
-    }
-  },
-
-
-
 
   async clear() {
     if (!confirm("确认清空「已入库标签数据」(CleanData)？采集预览本来就不入库。")) return;
@@ -439,12 +315,13 @@ const DataCollect = {
           <tr>
             <td>${escapeHtml(i.source || "")}</td>
             <td>${escapeHtml(i.tags || i.title || "")}</td>
-            <td title="${escapeHtml(content)}">${escapeHtml(short)}</td>
+        <td title="${escapeHtml(content)}">${escapeHtml(short)}</td>
             <td>${escapeHtml(i.endpoint_source || "")}</td>
             <td>${escapeHtml(i.endpoint_category || "")}</td>
-            <td class="cell-mono">${escapeHtml(i.occur_time || i.created_at || "")}</td>
+            <td class="cell-mono">${escapeHtml(i.created_at || i.collect_time || "")}</td>
+            <td class="cell-mono">${escapeHtml(i.occur_time || i.data_time || "—")}</td>
             <td class="nowrap">
-              <button type="button" class="btn small" onclick="DataCollect.openCleanEditModal(${i.id}, '${escapeHtml(i.source || "")}', '${escapeHtml(i.tags || "")}', '${escapeHtml(i.category || "")}', '${escapeHtml(content)}', '${escapeHtml(i.endpoint_source || "")}', '${escapeHtml(i.endpoint_category || "")}')">修改</button>
+              <button type="button" class="btn small" onclick="DataCollect.openCleanEditModal(${i.id}, '${escapeHtml(i.source || "")}', '${escapeHtml(i.tags || "")}', '${escapeHtml(i.category || "")}', '${escapeHtml(content)}', '${escapeHtml(i.endpoint_source || "")}', '${escapeHtml(i.endpoint_category || "")}', '${escapeHtml(i.occur_time || "")}', '${escapeHtml(i.created_at || "")}')">修改</button>
               <button type="button" class="btn small danger" onclick="DataCollect.deleteClean(${i.id})">删除</button>
             </td>
           </tr>`;
@@ -469,7 +346,7 @@ const DataCollect = {
           <td colspan="6" style="padding:0; background:var(--bg-2);">
             <table class="sub-table">
               <thead><tr>
-                <th>所属配置</th><th>标签</th><th>值</th><th>来源</th><th>类别</th><th>时间</th><th>操作</th>
+                <th>所属配置</th><th>标签</th><th>值</th><th>来源</th><th>类别</th><th>采集时间</th><th>数据时间</th><th>操作</th>
               </tr></thead>
               <tbody>${subRows}</tbody>
             </table>
@@ -480,7 +357,7 @@ const DataCollect = {
   },
 
   async deleteCleanByDay(date) {
-    if (!confirm(`确认删除 ${date} 当天全部已入库标签数据？此操作不可恢复。`)) return;
+    if (!confirm(`确认删除数据日期 ${date} 的全部已入库标签数据？此操作不可恢复。`)) return;
     try {
       const r = await API.del(`/api/data/clean/by-day/${encodeURIComponent(date)}`);
       toast(`已删除 ${(r.data && r.data.deleted) || 0} 条`, "success");
@@ -510,7 +387,13 @@ const DataCollect = {
     document.querySelectorAll("#clean-table tr.day-row").forEach(t => t.classList.remove("expanded"));
   },
 
-  openCleanEditModal(id, sourceEsc, tagsEsc, categoryEsc, contentEsc, epSourceEsc, epCategoryEsc) {
+  _toDatetimeLocal(s) {
+    const t = String(s || "").trim();
+    if (!t) return "";
+    return t.replace(" ", "T").slice(0, 16);
+  },
+
+  openCleanEditModal(id, sourceEsc, tagsEsc, categoryEsc, contentEsc, epSourceEsc, epCategoryEsc, occurEsc, collectedEsc) {
     const modal = document.getElementById("clean-edit-modal");
     if (!modal) return;
     const title = document.getElementById("clean-edit-title");
@@ -524,6 +407,10 @@ const DataCollect = {
     const ecEl = document.getElementById("clean-edit-endpoint-category");
     if (esEl) esEl.value = this._decodeHtml(epSourceEsc || "");
     if (ecEl) ecEl.value = this._decodeHtml(epCategoryEsc || "");
+    const occurEl = document.getElementById("clean-edit-occur-time");
+    const colEl = document.getElementById("clean-edit-collect-time");
+    if (occurEl) occurEl.value = this._toDatetimeLocal(this._decodeHtml(occurEsc || ""));
+    if (colEl) colEl.value = this._decodeHtml(collectedEsc || "") || "入库时自动记录";
     modal.classList.remove("hidden");
   },
 
@@ -541,6 +428,10 @@ const DataCollect = {
     const ecEl = document.getElementById("clean-edit-endpoint-category");
     if (esEl) esEl.value = "";
     if (ecEl) ecEl.value = "";
+    const occurEl = document.getElementById("clean-edit-occur-time");
+    const colEl = document.getElementById("clean-edit-collect-time");
+    if (occurEl) occurEl.value = "";
+    if (colEl) colEl.value = "入库时自动记录";
     modal.classList.remove("hidden");
   },
 
@@ -559,6 +450,7 @@ const DataCollect = {
       content: document.getElementById("clean-edit-content").value || "",
       endpoint_source: (document.getElementById("clean-edit-endpoint-source")?.value || "").trim(),
       endpoint_category: (document.getElementById("clean-edit-endpoint-category")?.value || "").trim(),
+      occur_time: (document.getElementById("clean-edit-occur-time")?.value || "").trim(),
     };
     try {
       if (id) {
@@ -587,8 +479,132 @@ const DataCollect = {
   },
 
   async refresh() {
+    this._defaultOrgRange();
+    await this.loadOrgUnits();
     await this.loadEndpoints();
-    await this.loadTagged();
     await this.loadClean();
+  },
+
+  async loadOrgUnits() {
+    const tbody = document.querySelector("#org-unit-table tbody");
+    if (!tbody) return;
+    try {
+      const r = await API.get("/api/data/org-units");
+      const rows = r.data || [];
+      tbody.innerHTML = rows.length
+        ? rows.map((u) => `
+          <tr>
+            <td>
+              <input class="input org-unit-name" data-id="${u.id}" value="${escapeHtml(u.name || u.code || "")}"
+                placeholder="单位名称" maxlength="${V.L.orgName || 64}" autocomplete="off" spellcheck="false" />
+            </td>
+            <td>
+              <input class="input org-unit-url" data-id="${u.id}" value="${escapeHtml(u.base_url || "")}"
+                placeholder="http://主机:端口" maxlength="2048" autocomplete="off" spellcheck="false" />
+            </td>
+            <td>
+              <input class="input org-unit-remark" data-id="${u.id}" value="${escapeHtml(u.remark || "运维、安防数据")}"
+                placeholder="运维、安防数据" maxlength="${V.L.orgRemark || 64}" autocomplete="off" spellcheck="false" />
+            </td>
+            <td class="nowrap">
+              <button type="button" class="btn small primary" onclick="DataCollect.saveOrgUnit(${u.id})">保存</button>
+              <button type="button" class="btn small danger" onclick="DataCollect.deleteOrgUnit(${u.id})">删除</button>
+            </td>
+          </tr>`).join("")
+        : `<tr><td colspan="4" class="muted" style="text-align:center;padding:18px;">暂无单位配置</td></tr>`;
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="4" class="muted" style="text-align:center;padding:18px;">${escapeHtml(e.message || "加载失败")}</td></tr>`;
+    }
+  },
+
+  _orgUnitPayload(id) {
+    const nameEl = document.querySelector(`#org-unit-table input.org-unit-name[data-id="${id}"]`);
+    const input = document.querySelector(`#org-unit-table input.org-unit-url[data-id="${id}"]`);
+    const remarkEl = document.querySelector(`#org-unit-table input.org-unit-remark[data-id="${id}"]`);
+    const nameCheck = V.str(nameEl ? nameEl.value : "", "单位", {
+      min: 1,
+      max: V.L.orgName || 64,
+    });
+    if (!V.ok(nameCheck)) return { error: nameCheck.msg };
+    const remarkCheck = V.str(remarkEl ? remarkEl.value : "", "备注", {
+      required: false,
+      max: V.L.orgRemark || 64,
+    });
+    if (!V.ok(remarkCheck)) return { error: remarkCheck.msg };
+    const url = (input ? input.value : "").trim();
+    if (url) {
+      try {
+        const u = new URL(url);
+        if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error();
+      } catch (_) {
+        return { error: "基地 URL 须为 http:// 或 https:// 开头" };
+      }
+    }
+    return {
+      name: nameCheck.value,
+      base_url: url,
+      remark: remarkCheck.value || "运维、安防数据",
+    };
+  },
+
+  async saveOrgUnit(id) {
+    const payload = this._orgUnitPayload(id);
+    if (payload.error) {
+      toast(payload.error, "error");
+      return;
+    }
+    try {
+      await API.put(`/api/data/org-units/${id}`, payload);
+      const remarkEl = document.querySelector(`#org-unit-table input.org-unit-remark[data-id="${id}"]`);
+      if (remarkEl && !(remarkEl.value || "").trim()) remarkEl.value = "运维、安防数据";
+      toast("已保存", "success");
+    } catch (e) {
+      toast(e.message || "保存失败", "error");
+    }
+  },
+
+  async deleteOrgUnit(id) {
+    if (!confirm("确认删除该单位接口？")) return;
+    try {
+      await API.del(`/api/data/org-units/${id}`);
+      toast("已删除", "success");
+      await this.loadOrgUnits();
+    } catch (e) {
+      toast(e.message || "删除失败", "error");
+    }
+  },
+
+  _defaultOrgRange() {
+    const fromEl = document.getElementById("org-date-from");
+    const toEl = document.getElementById("org-date-to");
+    if (!fromEl || !toEl) return;
+    const pad = (n) => String(n).padStart(2, "0");
+    const fmt = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    const to = new Date();
+    const from = new Date(to.getTime() - 7 * 24 * 3600 * 1000);
+    if (!fromEl.value) fromEl.value = fmt(from);
+    if (!toEl.value) toEl.value = fmt(to);
+  },
+
+  async fetchOrgMetrics() {
+    const from = (document.getElementById("org-date-from")?.value || "").trim();
+    const to = (document.getElementById("org-date-to")?.value || "").trim();
+    if (!from || !to) {
+      toast("请填写时间范围", "error");
+      return;
+    }
+    if (from > to) {
+      toast("结束时间不能早于起始时间", "error");
+      return;
+    }
+    try {
+      toast("正在按时间范围采集…");
+      const r = await API.post("/api/data/org-units/fetch", { date_from: from, date_to: to });
+      const stored = (r.data && r.data.stored) || 0;
+      toast(`已入库该时段指标 ${stored} 条`, "success");
+      await this.loadClean();
+    } catch (e) {
+      toast(e.message || "拉取失败", "error");
+    }
   },
 };

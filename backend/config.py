@@ -41,3 +41,7 @@ class Config:
     EXPORT_DIR = os.path.join(BASE_DIR, "exports")
     LOG_FILE = os.path.join(BASE_DIR, "data", "app.log")
     MAX_CONTENT_LENGTH = 32 * 1024 * 1024
+    # 内网 OpenAI 兼容大模型。优先用页面保存的 data/llm_config.json，其次环境变量。
+    LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "")
+    LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
+    LLM_MODEL = os.environ.get("LLM_MODEL", "")

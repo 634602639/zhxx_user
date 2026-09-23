@@ -7,6 +7,8 @@ const V = {
     epMethod: 16,
     epUrl: 2048,
     epLabel: 64,
+    orgRemark: 64,
+    orgName: 64,
     epListPath: 512,
     epBody: 65536,
     epFieldMap: 32768,
@@ -150,8 +152,6 @@ const V = {
       "ep-url": { min: 1, max: L.epUrl, required: true, note: "须为 http:// 或 https:// 开头" },
       "ep-source": { max: L.epLabel, optional: true },
       "ep-category": { max: L.epLabel, optional: true },
-      "tag-edit-tag": { min: 1, max: L.tag, required: true },
-      "tag-edit-value": { min: 1, max: L.tagValue, required: true },
       "clean-edit-source": { max: L.cleanSource, optional: true },
       "clean-edit-tags": { max: L.cleanTags, optional: true },
       "clean-edit-endpoint-source": { max: L.epLabel, optional: true },
@@ -161,7 +161,6 @@ const V = {
       "f-title": { min: 1, max: L.reportTitle, required: true },
       "f-content": { max: L.reportContent, optional: true },
       "mng-q": { max: L.searchKeyword, optional: true, note: "按标题模糊匹配" },
-      "gen-compose-q": { max: L.searchKeyword, optional: true, note: "按标题模糊匹配" },
     };
     Object.entries(fields).forEach(([id, opts]) => {
       const el = document.getElementById(id);
@@ -210,7 +209,7 @@ const V = {
     }
     const v = this.text(value, "值", { required: true, max: this.L.tagValue });
     if (!this.ok(v)) return this.fail(v.msg);
-    if (!String(value || "").trim()) return this.fail("请填写或选中要暂存的内容");
+    if (!String(value || "").trim()) return this.fail("请选中要入库的内容");
     return true;
   },
 
@@ -279,7 +278,7 @@ const V = {
   },
 };
 
-/** 预览区「标签」输入限制（与暂存校验一致） */
-V.PREVIEW_TAG_LIMIT = { min: 1, max: V.L.tag, required: true, note: "暂存前须在正文中选中一段文本" };
+/** 预览区「标签」输入限制（与入库校验一致） */
+V.PREVIEW_TAG_LIMIT = { min: 1, max: V.L.tag, required: true, note: "入库前须在正文中选中一段文本" };
 
 document.addEventListener("DOMContentLoaded", () => V.wireStaticLimits());
